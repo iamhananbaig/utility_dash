@@ -1,0 +1,693 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Exports\BillsExport;
+use App\Jobs\GenerateBillPdfJob;
+use App\Models\Bill;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+
+class BillController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        $query = Bill::with('property.location');
+
+        if ($request->has('status') && $request->status !== null) {
+            $query->where('bills.status', $request->status);
+        }
+
+        if ($request->has('location_id') && $request->location_id !== null) {
+            $query->where('property_id', function ($q) use ($request) {
+                $q->select('id')->from('properties')->where('location_id', $request->location_id);
+            });
+        }
+
+        if ($request->has('property_id') && $request->property_id !== null) {
+            $query->where('property_id', $request->property_id);
+        }
+
+        if ($request->has('bill_month') && $request->bill_month !== null) {
+            $query->where('bill_month', $request->bill_month);
+        }
+
+        if ($request->has('search') && $request->search !== null) {
+            $search = $request->search;
+            $query->whereHas('property', function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('reference_no', 'like', "%{$search}%");
+            });
+        }
+
+        $bills = $query->orderByDesc('bill_month')->paginate($request->input('per_page', 50));
+
+        return response()->json($bills);
+    }
+
+    public function process(Request $request, int $id): JsonResponse
+    {
+        $bill = Bill::findOrFail($id);
+
+        $validated = $request->validate([
+            'instruction_id' => 'nullable|string|max:255',
+            'batch_no' => 'nullable|string|max:255',
+            'voucher_no' => 'required|string|max:255',
+            'payment_date' => 'nullable|date',
+        ]);
+
+        $bill->update([
+            'status' => 'in_process',
+            'instruction_id' => $validated['instruction_id'] ?? null,
+            'batch_no' => $validated['batch_no'] ?? null,
+            'voucher_no' => $validated['voucher_no'],
+            'payment_date' => $validated['payment_date'] ?? now()->toDateString(),
+        ]);
+
+        return response()->json($bill->fresh('property'));
+    }
+
+    public function manualPayment(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'reference_no' => 'required|string|max:255',
+            'voucher_no' => 'required|string|max:255',
+            'instruction_id' => 'nullable|string|max:255',
+            'batch_no' => 'nullable|string|max:255',
+            'payment_date' => 'nullable|date',
+            'status' => 'required|in:in_process,paid',
+        ]);
+
+        $bill = Bill::whereHas('property', function ($q) use ($validated) {
+            $q->where('reference_no', $validated['reference_no']);
+        })->first();
+
+        if (! $bill) {
+            return response()->json(['message' => 'Bill not found for reference: '.$validated['reference_no']], 404);
+        }
+
+        $updateData = [
+            'status' => $validated['status'],
+            'instruction_id' => $validated['instruction_id'] ?? null,
+            'batch_no' => $validated['batch_no'] ?? null,
+            'voucher_no' => $validated['voucher_no'],
+            'payment_date' => $validated['payment_date'] ?? now()->toDateString(),
+        ];
+
+        if ($validated['status'] === 'paid') {
+            $updateData['paid_at'] = now();
+            $updateData['paid_amount'] = $bill->website_payable;
+        }
+
+        $bill->update($updateData);
+
+        return response()->json([
+            'message' => "Bill {$bill->property->reference_no} marked as {$validated['status']}",
+            'bill' => $bill->fresh('property'),
+        ]);
+    }
+
+    public function markPaid(int $id): JsonResponse
+    {
+        $bill = Bill::findOrFail($id);
+
+        if ($bill->status !== 'in_process') {
+            return response()->json(['message' => 'Bill must be in process before marking as paid'], 422);
+        }
+
+        $bill->update([
+            'status' => 'paid',
+            'paid_at' => now(),
+            'paid_amount' => $bill->website_payable,
+        ]);
+
+        return response()->json($bill->fresh('property'));
+    }
+
+    public function markPaidWithDetails(Request $request, int $id): JsonResponse
+    {
+        $bill = Bill::findOrFail($id);
+
+        $validated = $request->validate([
+            'batch_no' => 'required|string|max:255',
+            'instruction_id' => 'nullable|string|max:255',
+            'payment_date' => 'nullable|date',
+        ]);
+
+        $batchNo = $validated['batch_no'];
+        $instructionId = $validated['instruction_id'] ?? null;
+
+        // Validation: if batch = SI, only one bill at a time
+        if (strtolower($batchNo) === 'si' && $bill->status !== 'in_process') {
+            return response()->json(['message' => 'For SI batch, bill must be in process first'], 422);
+        }
+
+        // Validation: same instruction no cannot be used for multiple bills
+        if ($instructionId !== null) {
+            $existing = Bill::where('instruction_id', $instructionId)
+                ->where('id', '!=', $id)
+                ->exists();
+            if ($existing) {
+                return response()->json(['message' => "Instruction ID '{$instructionId}' is already used for another bill"], 422);
+            }
+        }
+
+        $bill->update([
+            'status' => 'paid',
+            'paid_at' => now(),
+            'paid_amount' => $bill->website_payable,
+            'batch_no' => $batchNo,
+            'instruction_id' => $instructionId,
+            'payment_date' => $validated['payment_date'] ?? now()->toDateString(),
+        ]);
+
+        return response()->json($bill->fresh('property'));
+    }
+
+    public function bulkMarkPaid(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer',
+            'batch_no' => 'required|string|max:255',
+            'instruction_id' => 'nullable|string|max:255',
+            'payment_date' => 'nullable|date',
+        ]);
+
+        $batchNo = $validated['batch_no'];
+        $instructionId = $validated['instruction_id'] ?? null;
+
+        // Validation: if batch = SI, only one bill allowed
+        if (strtolower($batchNo) === 'si' && count($validated['ids']) > 1) {
+            return response()->json(['message' => 'For SI batch, only one bill can be marked as paid at a time'], 422);
+        }
+
+        // Validation: same instruction no cannot be used for multiple bills
+        if ($instructionId !== null) {
+            $existing = Bill::where('instruction_id', $instructionId)
+                ->whereIn('id', $validated['ids'])
+                ->exists();
+            if (! $existing) {
+                // Check if instruction is used by ANY bill
+                $usedElsewhere = Bill::where('instruction_id', $instructionId)->exists();
+                if ($usedElsewhere) {
+                    return response()->json(['message' => "Instruction ID '{$instructionId}' is already used for another bill"], 422);
+                }
+            }
+        }
+
+        $updated = 0;
+        foreach ($validated['ids'] as $billId) {
+            $bill = Bill::find($billId);
+            if (! $bill) {
+                continue;
+            }
+
+            $bill->update([
+                'status' => 'paid',
+                'paid_at' => now(),
+                'paid_amount' => $bill->website_payable,
+                'batch_no' => $batchNo,
+                'instruction_id' => $instructionId,
+                'payment_date' => $validated['payment_date'] ?? now()->toDateString(),
+            ]);
+            $updated++;
+        }
+
+        return response()->json([
+            'message' => "Marked {$updated} bill(s) as paid",
+            'updated' => $updated,
+        ]);
+    }
+
+    public function bulkProcess(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->store('payment-proofs', 'local');
+        $fullPath = Storage::disk('local')->path($path);
+
+        $spreadsheet = Excel::toCollection(null, $fullPath)->first();
+
+        if ($spreadsheet === null || $spreadsheet->isEmpty()) {
+            return response()->json(['message' => 'Empty file'], 422);
+        }
+
+        $headers = $spreadsheet->first();
+        $rows = $spreadsheet->slice(1);
+
+        $refIndex = $this->findColumnIndex($headers, ['reference_no', 'reference', 'ref_no', 'refno']);
+        $instructionIndex = $this->findColumnIndex($headers, ['instruction_id', 'instruction']);
+        $batchIndex = $this->findColumnIndex($headers, ['batch_no', 'batch']);
+        $voucherIndex = $this->findColumnIndex($headers, ['voucher_no', 'voucher']);
+        $dateIndex = $this->findColumnIndex($headers, ['date', 'payment_date']);
+
+        if ($refIndex === null || $voucherIndex === null) {
+            return response()->json(['message' => 'Required columns not found: reference_no, voucher_no'], 422);
+        }
+
+        $processed = 0;
+        $skipped = 0;
+        $notFound = 0;
+        $errors = [];
+
+        DB::transaction(function () use ($rows, $refIndex, $instructionIndex, $batchIndex, $voucherIndex, $dateIndex, &$processed, &$skipped, &$notFound, &$errors) {
+            foreach ($rows as $row) {
+                $refNo = trim((string) ($row[$refIndex] ?? ''));
+                $voucherNo = trim((string) ($row[$voucherIndex] ?? ''));
+
+                if ($refNo === '' || $voucherNo === '') {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $bill = Bill::whereHas('property', function ($q) use ($refNo) {
+                    $q->where('reference_no', $refNo);
+                })->first();
+
+                if ($bill === null) {
+                    $notFound++;
+
+                    continue;
+                }
+
+                $instructionId = $instructionIndex !== null ? trim((string) ($row[$instructionIndex] ?? '')) : null;
+                $batchNo = $batchIndex !== null ? trim((string) ($row[$batchIndex] ?? '')) : null;
+                $date = $dateIndex !== null ? $row[$dateIndex] : null;
+
+                $bill->update([
+                    'status' => 'in_process',
+                    'instruction_id' => $instructionId ?: null,
+                    'batch_no' => $batchNo ?: null,
+                    'voucher_no' => $voucherNo,
+                    'payment_date' => $date ? Carbon::parse($date)->toDateString() : now()->toDateString(),
+                ]);
+
+                $processed++;
+            }
+        });
+
+        return response()->json([
+            'message' => "Processed: {$processed}, Not found: {$notFound}, Skipped: {$skipped}",
+            'processed' => $processed,
+            'not_found' => $notFound,
+            'skipped' => $skipped,
+        ]);
+    }
+
+    public function updateStatus(Request $request, int $id): JsonResponse
+    {
+        $bill = Bill::findOrFail($id);
+
+        $validated = $request->validate([
+            'status' => 'required|in:unpaid,in_process,paid,disputed,cancelled',
+            'payment_note' => 'nullable|string',
+        ]);
+
+        $bill->update($validated);
+
+        return response()->json($bill->fresh('property'));
+    }
+
+    public function updateAmount(Request $request, int $id): JsonResponse
+    {
+        $bill = Bill::findOrFail($id);
+
+        if ($bill->status === 'paid') {
+            return response()->json(['message' => 'Cannot change amount after bill is marked as paid'], 422);
+        }
+
+        $validated = $request->validate([
+            'website_payable' => 'required|numeric|min:0',
+        ]);
+
+        $oldAmount = $bill->website_payable;
+        $bill->update([
+            'website_payable' => $validated['website_payable'],
+            'payable_difference' => $bill->calculated_payable - $validated['website_payable'],
+        ]);
+
+        return response()->json($bill->fresh('property'));
+    }
+
+    public function showHtml(int $id): Response
+    {
+        $bill = Bill::findOrFail($id);
+
+        if ($bill->raw_html_path === null) {
+            abort(404, 'Raw HTML not available');
+        }
+
+        $content = Storage::disk('local')->get($bill->raw_html_path);
+
+        $content = preg_replace('/<noscript>.*?<\/noscript>/is', '', $content);
+
+        $baseTag = '<base href="https://bill.pitc.com.pk/iescobill/" />';
+        if (str_contains($content, '<head>')) {
+            $content = str_replace('<head>', '<head>'.$baseTag, $content);
+        } elseif (str_contains($content, '<HEAD>')) {
+            $content = str_replace('<HEAD>', '<HEAD>'.$baseTag, $content);
+        } else {
+            $content = $baseTag.$content;
+        }
+
+        return response($content, 200, [
+            'Content-Type' => 'text/html; charset=utf-8',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            'Pragma' => 'no-cache',
+        ]);
+    }
+
+    public function export(Request $request): BinaryFileResponse
+    {
+        $query = Bill::with('property.location');
+
+        if ($request->has('status') && $request->status !== null) {
+            $query->where('bills.status', $request->status);
+        }
+
+        if ($request->has('location_id') && $request->location_id !== null) {
+            $query->where('property_id', function ($q) use ($request) {
+                $q->select('id')->from('properties')->where('location_id', $request->location_id);
+            });
+        }
+
+        if ($request->has('bill_month') && $request->bill_month !== null) {
+            $query->where('bill_month', $request->bill_month);
+        }
+
+        $bills = $query->orderByDesc('bill_month')->get();
+
+        return Excel::download(
+            new BillsExport($bills),
+            'bills_export.xlsx'
+        );
+    }
+
+    public function pdf(int $id): Response
+    {
+        $bill = Bill::with('property.location')->findOrFail($id);
+
+        // Serve cached PDF if available
+        if ($bill->pdf_generated_at) {
+            $pdfPath = 'bills/pdfs/'.$bill->id.'.pdf';
+            if (Storage::disk('local')->exists($pdfPath)) {
+                $pdfContent = Storage::disk('local')->get($pdfPath);
+                $fileName = 'bill_'.$bill->property->reference_no.'_'.$bill->bill_month.'.pdf';
+
+                return response($pdfContent, 200, [
+                    'Content-Type' => 'application/pdf',
+                    'Content-Disposition' => 'inline; filename="'.$fileName.'"',
+                    'Cache-Control' => 'no-store, no-cache, must-revalidate',
+                ]);
+            }
+        }
+
+        // Generate on-the-fly if no cached PDF
+        if ($bill->raw_html_path === null) {
+            abort(404, 'Raw HTML not available');
+        }
+
+        $content = Storage::disk('local')->get($bill->raw_html_path);
+        $content = preg_replace('/<noscript>.*?<\/noscript>/is', '', $content);
+
+        $baseTag = '<base href="https://bill.pitc.com.pk/iescobill/" />';
+        if (str_contains($content, '<head>')) {
+            $content = str_replace('<head>', '<head>'.$baseTag, $content);
+        } elseif (str_contains($content, '<HEAD>')) {
+            $content = str_replace('<HEAD>', '<HEAD>'.$baseTag, $content);
+        } else {
+            $content = $baseTag.$content;
+        }
+
+        // Wrap in print HTML with QR initialization script
+        $qrInit = '<script>
+(function(){
+  var host = document.getElementById("charges_qrcode_1");
+  var textEl = document.getElementById("charges_qr_text_1");
+  if (!host || !textEl) return;
+  var text = textEl.value || textEl.textContent || "";
+  if (!text.trim()) return;
+  host.setAttribute("data-bill-qr-init", "1");
+  import("https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm").then(function(module) {
+    var QRCode = module.default;
+    host.innerHTML = "";
+    var canvas = document.createElement("canvas");
+    canvas.className = "bill-qr-canvas bill-qr-canvas--charges";
+    canvas.setAttribute("role", "img");
+    host.appendChild(canvas);
+    return QRCode.toCanvas(canvas, text, {
+      errorCorrectionLevel: "L",
+      width: 300,
+      margin: 2,
+      color: { dark: "#000000", light: "#ffffff" }
+    });
+  }).then(function() {
+    if (host.firstChild) {
+      host.firstChild.style.width = "150px";
+      host.firstChild.style.height = "150px";
+    }
+  }).catch(function(){});
+})();
+</script>';
+
+        $html = '<!DOCTYPE html><html><head>'
+            .'<meta charset="utf-8">'
+            .$baseTag
+            .'<style>'
+            .'@page { size: A4 portrait; margin: 10mm; }'
+            .'body { margin: 0; padding: 0; }'
+            .'.bill-loader, .bill-loader--hide, noscript { display: none !important; }'
+            .'</style>'
+            .'<link rel="stylesheet" href="CSS/bill-print.css?v='.time().'" />'
+            .'</head><body>'
+            .$content
+            .$qrInit
+            .'</body></html>';
+
+        // Write temp HTML file
+        $tempDir = sys_get_temp_dir();
+        $tempHtml = $tempDir.'/bill_'.$id.'_'.time().'.html';
+        $tempPdf = $tempDir.'/bill_'.$id.'_'.time().'.pdf';
+        file_put_contents($tempHtml, $html);
+
+        // Call Node.js PDF generator
+        $scriptPath = base_path().'/../pdf-service/pdf-generator.js';
+        $cmd = 'node '.escapeshellarg($scriptPath).' --file '.escapeshellarg($tempHtml).' --output '.escapeshellarg($tempPdf).' 2>&1';
+        exec($cmd, $output, $returnCode);
+
+        // Cleanup temp HTML
+        @unlink($tempHtml);
+
+        if ($returnCode !== 0 || ! file_exists($tempPdf)) {
+            @unlink($tempPdf);
+            abort(500, 'PDF generation failed: '.implode("\n", $output));
+        }
+
+        $pdfContent = file_get_contents($tempPdf);
+        @unlink($tempPdf);
+
+        $fileName = 'bill_'.$bill->property->reference_no.'_'.$bill->bill_month.'.pdf';
+
+        return response($pdfContent, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$fileName.'"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
+    }
+
+    public function bulkPdf(Request $request): Response
+    {
+        $validated = $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer',
+        ]);
+
+        $bills = Bill::with('property.location')->whereIn('id', $validated['ids'])->get();
+
+        if ($bills->isEmpty()) {
+            abort(404, 'No bills found');
+        }
+
+        // Build combined HTML
+        $baseTag = '<base href="https://bill.pitc.com.pk/iescobill/" />';
+        $htmlParts = [];
+        $idx = 0;
+
+        foreach ($bills as $bill) {
+            if ($bill->raw_html_path === null) {
+                continue;
+            }
+
+            $content = Storage::disk('local')->get($bill->raw_html_path);
+            $content = preg_replace('/<noscript>.*?<\/noscript>/is', '', $content);
+
+            // Rewrite IDs for uniqueness
+            $prefix = 'b'.$idx.'_';
+            $content = str_replace('<head>', '<head>'.$baseTag, $content);
+            $content = preg_replace('/id="([^"]+)"/', 'id="'.$prefix.'$1"', $content);
+            $content = preg_replace("/id='([^']+)'/", "id='${prefix}$1'", $content);
+            $content = preg_replace('/for="([^"]+)"/', 'for="'.$prefix.'$1"', $content);
+            $content = preg_replace('/getElementById\("([^"]+)"\)/', 'getElementById("'.$prefix.'$1")', $content);
+            $content = preg_replace("/getElementById\('([^']+)'\)/", "getElementById('${prefix}$1')", $content);
+
+            $qrInit = '<script>
+(function(){
+  var host = document.getElementById("'.$prefix.'charges_qrcode_1");
+  var textEl = document.getElementById("'.$prefix.'charges_qr_text_1");
+  if (!host || !textEl) return;
+  var text = textEl.value || textEl.textContent || "";
+  if (!text.trim()) return;
+  host.setAttribute("data-bill-qr-init", "1");
+  import("https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm").then(function(module) {
+    var QRCode = module.default;
+    host.innerHTML = "";
+    var canvas = document.createElement("canvas");
+    canvas.className = "bill-qr-canvas bill-qr-canvas--charges";
+    canvas.setAttribute("role", "img");
+    host.appendChild(canvas);
+    return QRCode.toCanvas(canvas, text, {
+      errorCorrectionLevel: "L",
+      width: 300,
+      margin: 2,
+      color: { dark: "#000000", light: "#ffffff" }
+    });
+  }).then(function() {
+    if (host.firstChild) {
+      host.firstChild.style.width = "150px";
+      host.firstChild.style.height = "150px";
+    }
+  }).catch(function(){});
+})();
+</script>';
+
+            $htmlParts[] = '<div class="bill-page">'.$content.$qrInit.'</div>';
+            $idx++;
+        }
+
+        $html = '<!DOCTYPE html><html><head>'
+            .'<meta charset="utf-8">'
+            .$baseTag
+            .'<style>'
+            .'@page { size: A4 portrait; margin: 10mm; }'
+            .'.bill-page { page-break-after: always; }'
+            .'.bill-page:last-child { page-break-after: auto; }'
+            .'body { margin: 0; padding: 0; }'
+            .'.bill-loader, .bill-loader--hide, noscript { display: none !important; }'
+            .'</style>'
+            .'<link rel="stylesheet" href="CSS/bill-print.css?v='.time().'" />'
+            .'</head><body>'
+            .implode("\n", $htmlParts)
+            .'</body></html>';
+
+        $tempDir = sys_get_temp_dir();
+        $tempHtml = $tempDir.'/bills_bulk_'.time().'.html';
+        $tempPdf = $tempDir.'/bills_bulk_'.time().'.pdf';
+        file_put_contents($tempHtml, $html);
+
+        $scriptPath = base_path().'/../pdf-service/pdf-generator.js';
+        $cmd = 'node '.escapeshellarg($scriptPath).' --file '.escapeshellarg($tempHtml).' --output '.escapeshellarg($tempPdf).' 2>&1';
+        exec($cmd, $output, $returnCode);
+
+        @unlink($tempHtml);
+
+        if ($returnCode !== 0 || ! file_exists($tempPdf)) {
+            @unlink($tempPdf);
+            abort(500, 'PDF generation failed: '.implode("\n", $output));
+        }
+
+        $pdfContent = file_get_contents($tempPdf);
+        @unlink($tempPdf);
+
+        return response($pdfContent, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="bills_'.now()->format('Y-m-d').'.pdf"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
+    }
+
+    public function generatePdf(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => 'nullable|array',
+            'ids.*' => 'integer',
+            'bill_month' => 'nullable|string',
+        ]);
+
+        $query = Bill::whereNull('pdf_generated_at')->whereNotNull('raw_html_path');
+
+        if (! empty($validated['ids'])) {
+            $query->whereIn('id', $validated['ids']);
+        }
+
+        if (! empty($validated['bill_month'])) {
+            $query->where('bill_month', $validated['bill_month']);
+        }
+
+        $bills = $query->pluck('id');
+        $count = $bills->count();
+
+        if ($count === 0) {
+            return response()->json(['message' => 'No pending PDFs to generate', 'queued' => 0]);
+        }
+
+        foreach ($bills as $billId) {
+            GenerateBillPdfJob::dispatch($billId);
+        }
+
+        return response()->json([
+            'message' => "Queued {$count} PDF(s) for generation",
+            'queued' => $count,
+        ]);
+    }
+
+    public function pdfStatus(): JsonResponse
+    {
+        $total = Bill::whereNotNull('raw_html_path')->count();
+        $generated = Bill::whereNotNull('pdf_generated_at')->count();
+        $pending = $total - $generated;
+
+        // Count jobs in the pdf queue
+        $redis = app('redis');
+        $pendingJobs = 0;
+        $reservedJobs = 0;
+        try {
+            $pendingJobs = (int) $redis->llen('queues:pdf');
+            $reservedJobs = (int) $redis->scard('queues:pdf:reserved') ?? 0;
+        } catch (\Throwable) {
+            // Redis not available
+        }
+
+        return response()->json([
+            'total' => $total,
+            'generated' => $generated,
+            'pending' => $pending,
+            'jobs_pending' => $pendingJobs,
+            'jobs_running' => $reservedJobs,
+        ]);
+    }
+
+    private function findColumnIndex(array $headers, array $candidates): ?int
+    {
+        foreach ($headers as $index => $header) {
+            $normalized = strtolower(trim((string) $header));
+            foreach ($candidates as $candidate) {
+                if ($normalized === $candidate) {
+                    return $index;
+                }
+            }
+        }
+
+        return null;
+    }
+}
