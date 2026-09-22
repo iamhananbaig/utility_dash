@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Storage;
 
 Route::get('/', function () {
     return view('welcome');
@@ -20,11 +19,13 @@ Route::get('/samples/{file}', function (string $file) {
         abort(404);
     }
 
-    $path = 'samples/'.$file;
+    $fullPath = public_path('samples/'.$file);
 
-    if (! Storage::disk('public')->exists($path)) {
+    if (! file_exists($fullPath)) {
         abort(404);
     }
 
-    return Storage::disk('public')->download($path, $file);
-})->where('file', '.*');
+    return response()->download($fullPath, $file, [
+        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ]);
+});
