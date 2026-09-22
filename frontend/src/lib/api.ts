@@ -21,7 +21,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export interface Location {
   id: number;
   code: string;
-  name: string;
   city: string;
   properties_count: number;
   created_at: string;
@@ -154,12 +153,24 @@ export interface PaginatedResponse<T> {
 // Locations
 export const locations = {
   list: () => request<Location[]>('/locations'),
-  create: (data: { code: string; name: string; city: string }) =>
+  create: (data: { code: string; city: string }) =>
     request<Location>('/locations', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: number, data: { code: string; name: string; city: string }) =>
+  update: (id: number, data: { code: string; city: string }) =>
     request<Location>(`/locations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number) =>
     request<{ message: string }>(`/locations/${id}`, { method: 'DELETE' }),
+  import: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE}/locations/import`, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: formData,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Import failed');
+    return data;
+  },
 };
 
 // Properties
@@ -183,7 +194,9 @@ export const properties = {
       headers: { Accept: 'application/json' },
       body: formData,
     });
-    return response.json();
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Import failed');
+    return data;
   },
   bulkUpdateRef: async (file: File) => {
     const formData = new FormData();
@@ -193,7 +206,9 @@ export const properties = {
       headers: { Accept: 'application/json' },
       body: formData,
     });
-    return response.json();
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Import failed');
+    return data;
   },
   bills: (id: number) => request<Bill[]>(`/properties/${id}/bills`),
   history: (id: number) => request<ReferenceHistory[]>(`/properties/${id}/history`),

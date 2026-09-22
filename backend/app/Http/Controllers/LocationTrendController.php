@@ -83,7 +83,6 @@ class LocationTrendController extends Controller
             'location' => [
                 'id' => $location->id,
                 'code' => $location->code,
-                'name' => $location->name,
             ],
             'year' => $year,
             'months' => $months,

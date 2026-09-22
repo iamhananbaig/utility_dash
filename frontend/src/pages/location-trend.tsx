@@ -22,7 +22,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 interface TrendData {
-  location: { id: number; code: string; name: string }
+  location: { id: number; code: string }
   year: number
   months: string[]
   totals: number[]

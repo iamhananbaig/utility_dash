@@ -158,18 +158,26 @@ export function PropertiesPage() {
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const result = await propertiesApi.import(file)
-    alert(result.message)
-    load()
+    try {
+      const result = await propertiesApi.import(file)
+      alert(result.message)
+      load()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Import failed')
+    }
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleRefUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const result = await propertiesApi.bulkUpdateRef(file)
-    alert(result.message)
-    load()
+    try {
+      const result = await propertiesApi.bulkUpdateRef(file)
+      alert(result.message)
+      load()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Import failed')
+    }
     if (refUpdateInputRef.current) refUpdateInputRef.current.value = ''
   }
 

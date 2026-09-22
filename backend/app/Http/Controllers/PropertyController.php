@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Imports\RawSpreadsheetImport;
 use App\Models\Location;
 use App\Models\Property;
 use App\Models\ReferenceHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
@@ -121,13 +123,20 @@ class PropertyController extends Controller
         $path = $file->store('imports', 'local');
         $fullPath = Storage::disk('local')->path($path);
 
-        $spreadsheet = Excel::toCollection(null, $fullPath)->first();
+        $import = new RawSpreadsheetImport;
+        Excel::import($import, $fullPath);
+        $spreadsheet = $import->rows;
 
         if ($spreadsheet === null || $spreadsheet->isEmpty()) {
             return response()->json(['message' => 'Empty file'], 422);
         }
 
         $headers = $spreadsheet->first();
+
+        if ($headers instanceof Collection) {
+            $headers = $headers->toArray();
+        }
+
         $rows = $spreadsheet->slice(1);
 
         $nameIndex = $this->findColumnIndex($headers, ['name', 'property_name']);
@@ -235,13 +244,20 @@ class PropertyController extends Controller
         $path = $file->store('imports', 'local');
         $fullPath = Storage::disk('local')->path($path);
 
-        $spreadsheet = Excel::toCollection(null, $fullPath)->first();
+        $import = new RawSpreadsheetImport;
+        Excel::import($import, $fullPath);
+        $spreadsheet = $import->rows;
 
         if ($spreadsheet === null || $spreadsheet->isEmpty()) {
             return response()->json(['message' => 'Empty file'], 422);
         }
 
         $headers = $spreadsheet->first();
+
+        if ($headers instanceof Collection) {
+            $headers = $headers->toArray();
+        }
+
         $rows = $spreadsheet->slice(1);
 
         $oldRefIndex = $this->findColumnIndex($headers, ['old_reference_no', 'old_ref', 'old_refno', 'previous_ref']);

@@ -13,13 +13,14 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/dashboard', [DashboardController::class, 'index']);
 
+Route::post('locations/import', [LocationController::class, 'import']);
 Route::apiResource('locations', LocationController::class);
 
-Route::apiResource('properties', PropertyController::class);
 Route::post('properties/import', [PropertyController::class, 'import']);
 Route::post('properties/bulk-update-ref', [PropertyController::class, 'bulkUpdateReference']);
 Route::get('properties/{id}/bills', [PropertyController::class, 'bills']);
 Route::get('properties/{id}/history', [PropertyController::class, 'history']);
+Route::apiResource('properties', PropertyController::class);
 
 Route::post('fetch', [FetchController::class, 'store']);
 Route::get('fetch/latest', [FetchController::class, 'latest']);
