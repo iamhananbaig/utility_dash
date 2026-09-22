@@ -86,9 +86,6 @@ export function LocationTrendPage() {
   const currentYear = new Date().getFullYear()
   const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3]
 
-  const stickyHeaders = (offset: string) =>
-    `sticky left-${offset} bg-background z-10`
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Location Trend</h1>
