@@ -105,9 +105,14 @@ class FetchBillJob implements ShouldQueue
             ->get()
             ->keyBy('reference_no');
 
+        $failedRefs = [];
+        $succeededRefs = [];
+
         foreach ($results as $refNo => $billData) {
             $property = $propertyMap->get($refNo);
             if (! $property) {
+                $failedRefs[] = ['ref' => $refNo, 'reason' => 'property not found'];
+
                 continue;
             }
 
@@ -134,6 +139,7 @@ class FetchBillJob implements ShouldQueue
 
                 if ($existing) {
                     Log::info("FetchBatch {$this->batchId}: Skipping {$refNo} for {$billMonth} — already exists");
+                    $succeededRefs[] = ['ref' => $refNo, 'note' => 'already exists'];
 
                     continue;
                 }
@@ -171,6 +177,11 @@ class FetchBillJob implements ShouldQueue
                     'raw_html_path' => $rawHtmlPath,
                     'fetched_at' => $billData['FETCHED_AT'] ?? now(),
                 ]);
+
+                $succeededRefs[] = ['ref' => $refNo, 'month' => $billMonth];
+            } else {
+                $reason = $billData['FETCH_ERROR'] ?? $billData['ERROR'] ?? $fetchStatus;
+                $failedRefs[] = ['ref' => $refNo, 'reason' => $reason];
             }
         }
 
@@ -191,6 +202,8 @@ class FetchBillJob implements ShouldQueue
                 'total' => $batch->total_refs,
                 'success' => $batch->success_count,
                 'fail' => $batch->fail_count,
+                'succeeded_refs' => $succeededRefs,
+                'failed_refs' => $failedRefs,
             ],
         ]);
     }

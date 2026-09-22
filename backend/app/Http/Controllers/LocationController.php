@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
 
 class LocationController extends Controller
 {
@@ -65,7 +64,7 @@ class LocationController extends Controller
         $fullPath = Storage::disk('local')->path($path);
 
         $import = new RawSpreadsheetImport;
-        Excel::import($import, $fullPath);
+        $import->load($fullPath);
         $spreadsheet = $import->rows;
 
         if ($spreadsheet === null || $spreadsheet->isEmpty()) {

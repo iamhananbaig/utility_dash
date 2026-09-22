@@ -29,6 +29,22 @@ interface ComparativeResult {
   }
 }
 
+function fmt(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) return '-'
+  const num = typeof value === 'string' ? parseFloat(value) : value
+  if (isNaN(num) || num === 0) return '-'
+  return Math.round(num).toLocaleString('en-US')
+}
+
+function fmtRate(units: number | string | null | undefined, amount: number | string | null | undefined): string {
+  const u = typeof units === 'string' ? parseFloat(units) : units
+  const a = typeof amount === 'string' ? parseFloat(amount) : amount
+  if (!u || u <= 0 || !a) return '-'
+  const rate = Math.round(a / u)
+  if (rate === 0) return '-'
+  return rate.toLocaleString('en-US')
+}
+
 export function ComparativePage() {
   const [input, setInput] = useState('')
   const [results, setResults] = useState<ComparativeResult[]>([])
@@ -75,7 +91,8 @@ export function ComparativePage() {
   th, td { border: 1px solid #333; padding: 3px 5px; text-align: right; white-space: nowrap; }
   th { background: #f0f0f0; font-weight: bold; font-size: 8px; }
   td:first-child, th:first-child { text-align: left; }
-  .section-header { background: #e0e0e0; font-weight: bold; text-align: center; }
+  td:nth-child(2), th:nth-child(2) { text-align: left; }
+  td:nth-child(3), th:nth-child(3) { text-align: left; }
 </style></head><body>
 <h2>Comparative Analysis Report</h2>
 <h3>${months ? `${months.prev} vs ${months.current} vs ${months.lastYear}` : ''}</h3>
@@ -119,10 +136,11 @@ ${content}
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead rowSpan={2} className="text-center">Ref No</TableHead>
-                <TableHead rowSpan={2} className="text-center">Property</TableHead>
-                <TableHead colSpan={3} className="text-center">Units (kWh)</TableHead>
-                <TableHead colSpan={3} className="text-center">Amount (Rs.)</TableHead>
+                <TableHead rowSpan={2}>Ref No</TableHead>
+                <TableHead rowSpan={2}>Location</TableHead>
+                <TableHead rowSpan={2}>Type</TableHead>
+                <TableHead colSpan={3} className="text-center">Units Comparative</TableHead>
+                <TableHead colSpan={3} className="text-center">Unit Rate Comparative</TableHead>
               </TableRow>
               <TableRow>
                 <TableHead className="text-center text-xs">{months.prev}</TableHead>
@@ -137,24 +155,25 @@ ${content}
               {results.map((r) => (
                 <TableRow key={r.reference_no}>
                   <TableCell className="font-mono text-xs">{r.reference_no}</TableCell>
-                  <TableCell className="text-xs">{r.property_name || '-'}</TableCell>
+                  <TableCell className="text-xs">{r.location || '-'}</TableCell>
+                  <TableCell className="text-xs">{r.property_type}</TableCell>
                   <TableCell className="text-right text-xs">
-                    {r.comparative.units.prev?.toLocaleString() ?? '-'}
+                    {fmt(r.comparative.units.prev)}
                   </TableCell>
                   <TableCell className="text-right text-xs font-medium">
-                    {r.comparative.units.current?.toLocaleString() ?? '-'}
+                    {fmt(r.comparative.units.current)}
                   </TableCell>
                   <TableCell className="text-right text-xs">
-                    {r.comparative.units.last_year?.toLocaleString() ?? '-'}
+                    {fmt(r.comparative.units.last_year)}
                   </TableCell>
                   <TableCell className="text-right text-xs">
-                    {r.comparative.amount.prev?.toLocaleString() ?? '-'}
+                    {fmtRate(r.comparative.units.prev, r.comparative.amount.prev)}
                   </TableCell>
                   <TableCell className="text-right text-xs font-medium">
-                    {r.comparative.amount.current?.toLocaleString() ?? '-'}
+                    {fmtRate(r.comparative.units.current, r.comparative.amount.current)}
                   </TableCell>
                   <TableCell className="text-right text-xs">
-                    {r.comparative.amount.last_year?.toLocaleString() ?? '-'}
+                    {fmtRate(r.comparative.units.last_year, r.comparative.amount.last_year)}
                   </TableCell>
                 </TableRow>
               ))}

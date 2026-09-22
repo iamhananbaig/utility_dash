@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Exports\BillsExport;
+use App\Jobs\BulkPdfJob;
 use App\Jobs\GenerateBillPdfJob;
 use App\Models\Bill;
+use App\Models\PdfBatch;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -506,113 +508,56 @@ class BillController extends Controller
         ]);
     }
 
-    public function bulkPdf(Request $request): Response
+    public function bulkPdf(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'ids' => 'required|array|min:1',
             'ids.*' => 'integer',
         ]);
 
-        $bills = Bill::with('property.location')->whereIn('id', $validated['ids'])->get();
+        $batch = PdfBatch::create([
+            'bill_count' => count($validated['ids']),
+        ]);
 
-        if ($bills->isEmpty()) {
-            abort(404, 'No bills found');
-        }
+        BulkPdfJob::dispatch($batch->id, $validated['ids']);
 
-        // Build combined HTML
-        $baseTag = '<base href="https://bill.pitc.com.pk/iescobill/" />';
-        $htmlParts = [];
-        $idx = 0;
-
-        foreach ($bills as $bill) {
-            if ($bill->raw_html_path === null) {
-                continue;
-            }
-
-            $content = Storage::disk('local')->get($bill->raw_html_path);
-            $content = preg_replace('/<noscript>.*?<\/noscript>/is', '', $content);
-
-            // Rewrite IDs for uniqueness
-            $prefix = 'b'.$idx.'_';
-            $content = str_replace('<head>', '<head>'.$baseTag, $content);
-            $content = preg_replace('/id="([^"]+)"/', 'id="'.$prefix.'$1"', $content);
-            $content = preg_replace("/id='([^']+)'/", "id='${prefix}$1'", $content);
-            $content = preg_replace('/for="([^"]+)"/', 'for="'.$prefix.'$1"', $content);
-            $content = preg_replace('/getElementById\("([^"]+)"\)/', 'getElementById("'.$prefix.'$1")', $content);
-            $content = preg_replace("/getElementById\('([^']+)'\)/", "getElementById('${prefix}$1')", $content);
-
-            $qrInit = '<script>
-(function(){
-  var host = document.getElementById("'.$prefix.'charges_qrcode_1");
-  var textEl = document.getElementById("'.$prefix.'charges_qr_text_1");
-  if (!host || !textEl) return;
-  var text = textEl.value || textEl.textContent || "";
-  if (!text.trim()) return;
-  host.setAttribute("data-bill-qr-init", "1");
-  import("https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm").then(function(module) {
-    var QRCode = module.default;
-    host.innerHTML = "";
-    var canvas = document.createElement("canvas");
-    canvas.className = "bill-qr-canvas bill-qr-canvas--charges";
-    canvas.setAttribute("role", "img");
-    host.appendChild(canvas);
-    return QRCode.toCanvas(canvas, text, {
-      errorCorrectionLevel: "L",
-      width: 300,
-      margin: 2,
-      color: { dark: "#000000", light: "#ffffff" }
-    });
-  }).then(function() {
-    if (host.firstChild) {
-      host.firstChild.style.width = "150px";
-      host.firstChild.style.height = "150px";
+        return response()->json([
+            'message' => 'PDF generation queued',
+            'batch_id' => $batch->id,
+            'bill_count' => $batch->bill_count,
+        ], 202);
     }
-  }).catch(function(){});
-})();
-</script>';
 
-            $htmlParts[] = '<div class="bill-page">'.$content.$qrInit.'</div>';
-            $idx++;
+    public function pdfBatchStatus(int $id): JsonResponse
+    {
+        $batch = PdfBatch::findOrFail($id);
+
+        return response()->json([
+            'batch_id' => $batch->id,
+            'status' => $batch->status,
+            'bill_count' => $batch->bill_count,
+            'pdf_path' => $batch->pdf_path,
+            'error' => $batch->error,
+        ]);
+    }
+
+    public function pdfBatchDownload(int $id): \Symfony\Component\HttpFoundation\Response
+    {
+        $batch = PdfBatch::findOrFail($id);
+
+        if ($batch->status !== 'completed' || $batch->pdf_path === null) {
+            abort(404, 'PDF not ready');
         }
 
-        $html = '<!DOCTYPE html><html><head>'
-            .'<meta charset="utf-8">'
-            .$baseTag
-            .'<style>'
-            .'@page { size: A4 portrait; margin: 10mm; }'
-            .'.bill-page { page-break-after: always; }'
-            .'.bill-page:last-child { page-break-after: auto; }'
-            .'body { margin: 0; padding: 0; }'
-            .'.bill-loader, .bill-loader--hide, noscript { display: none !important; }'
-            .'</style>'
-            .'<link rel="stylesheet" href="CSS/bill-print.css?v='.time().'" />'
-            .'</head><body>'
-            .implode("\n", $htmlParts)
-            .'</body></html>';
+        $fullPath = Storage::disk('local')->path($batch->pdf_path);
 
-        $tempDir = sys_get_temp_dir();
-        $tempHtml = $tempDir.'/bills_bulk_'.time().'.html';
-        $tempPdf = $tempDir.'/bills_bulk_'.time().'.pdf';
-        file_put_contents($tempHtml, $html);
-
-        $scriptPath = base_path().'/../pdf-service/pdf-generator.js';
-        $cmd = 'node '.escapeshellarg($scriptPath).' --file '.escapeshellarg($tempHtml).' --output '.escapeshellarg($tempPdf).' 2>&1';
-        exec($cmd, $output, $returnCode);
-
-        @unlink($tempHtml);
-
-        if ($returnCode !== 0 || ! file_exists($tempPdf)) {
-            @unlink($tempPdf);
-            abort(500, 'PDF generation failed: '.implode("\n", $output));
+        if (! file_exists($fullPath)) {
+            abort(404, 'PDF file not found');
         }
 
-        $pdfContent = file_get_contents($tempPdf);
-        @unlink($tempPdf);
-
-        return response($pdfContent, 200, [
+        return response()->file($fullPath, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="bills_'.now()->format('Y-m-d').'.pdf"',
-            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            'Content-Disposition' => 'inline; filename="bills_batch_'.$id.'.pdf"',
         ]);
     }
 

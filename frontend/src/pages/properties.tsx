@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import {
   properties as propertiesApi,
   locations as locationsApi,
+  fetchApi,
   type Property,
   type Location,
 } from '@/lib/api'
@@ -37,6 +38,7 @@ import {
   IconTrash,
   IconUpload,
   IconSearch,
+  IconCloudDownload,
 } from '@tabler/icons-react'
 
 export function PropertiesPage() {
@@ -49,6 +51,7 @@ export function PropertiesPage() {
   const [filterLocation, setFilterLocation] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterProvider, setFilterProvider] = useState('')
+  const [fetchingId, setFetchingId] = useState<number | null>(null)
   const [form, setForm] = useState<{
     name: string
     reference_no: string
@@ -179,6 +182,30 @@ export function PropertiesPage() {
       alert(err instanceof Error ? err.message : 'Import failed')
     }
     if (refUpdateInputRef.current) refUpdateInputRef.current.value = ''
+  }
+
+  const handleFetchSingle = async (prop: Property) => {
+    setFetchingId(prop.id)
+    try {
+      const response = await fetchApi.single(prop.reference_no, prop.provider)
+      const poll = async (): Promise<void> => {
+        const status = await fetchApi.status(response.batch_id)
+        if (status.status === 'completed') {
+          if (status.fail_count > 0) {
+            alert(`Fetch completed: 0 success, 1 failed for ${prop.reference_no}`)
+          } else {
+            alert(`Fetch completed: bill saved for ${prop.reference_no}`)
+          }
+          setFetchingId(null)
+          return
+        }
+        setTimeout(poll, 2000)
+      }
+      poll()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Fetch failed')
+      setFetchingId(null)
+    }
   }
 
   return (
@@ -314,6 +341,15 @@ export function PropertiesPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        disabled={fetchingId === prop.id}
+                        onClick={() => handleFetchSingle(prop)}
+                        title="Fetch bill"
+                      >
+                        <IconCloudDownload className={`h-4 w-4 ${fetchingId === prop.id ? 'animate-spin' : ''}`} />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(prop)}>
                         <IconPencil className="h-4 w-4" />
                       </Button>

@@ -260,8 +260,15 @@ export const bills = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
-  bulkPdf: (_ids: number[]) => {
-    window.open(`${API_BASE}/bills/bulk-pdf`, '_blank')
+  bulkPdf: (ids: number[]) =>
+    request<{ message: string; batch_id: number; bill_count: number }>('/bills/bulk-pdf', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+  pdfBatchStatus: (batchId: number) =>
+    request<{ batch_id: number; status: string; bill_count: number; pdf_path: string | null; error: string | null }>(`/pdf/${batchId}/status`),
+  pdfBatchDownload: (batchId: number) => {
+    window.open(`${API_BASE}/pdf/${batchId}/download`, '_blank');
   },
   export: (params?: Record<string, string>) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -275,6 +282,11 @@ export const fetchApi = {
     request<{ batch_id: number; total_refs: number }>('/fetch', {
       method: 'POST',
       body: JSON.stringify(data || {}),
+    }),
+  single: (referenceNo: string, provider?: string) =>
+    request<{ batch_id: number; total_refs: number }>('/fetch/single', {
+      method: 'POST',
+      body: JSON.stringify({ reference_no: referenceNo, provider: provider || 'iesco' }),
     }),
   latest: () => request<FetchBatch | null>('/fetch/latest'),
   status: (id: number) => request<FetchBatch>(`/fetch/${id}/status`),

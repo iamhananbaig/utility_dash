@@ -117,6 +117,8 @@ export function BillsPage() {
   const [bulkProcessOpen, setBulkProcessOpen] = useState(false)
   const [bulkFile, setBulkFile] = useState<File | null>(null)
   const [bulkProcessing, setBulkProcessing] = useState(false)
+  const [pdfBatchId, setPdfBatchId] = useState<number | null>(null)
+  const [pdfGenerating, setPdfGenerating] = useState(false)
   const bulkFileRef = useRef<HTMLInputElement>(null)
   const [editAmountOpen, setEditAmountOpen] = useState(false)
   const [editAmountBill, setEditAmountBill] = useState<Bill | null>(null)
@@ -400,6 +402,35 @@ export function BillsPage() {
     }
   }, [selectedIds])
 
+  const handleBulkPdf = async () => {
+    if (selectedIds.size === 0) return
+    setPdfGenerating(true)
+    try {
+      const result = await billsApi.bulkPdf(Array.from(selectedIds))
+      setPdfBatchId(result.batch_id)
+      const poll = async (): Promise<void> => {
+        const status = await billsApi.pdfBatchStatus(result.batch_id)
+        if (status.status === 'completed') {
+          billsApi.pdfBatchDownload(result.batch_id)
+          setPdfBatchId(null)
+          setPdfGenerating(false)
+          return
+        }
+        if (status.status === 'failed') {
+          alert(status.error || 'PDF generation failed')
+          setPdfBatchId(null)
+          setPdfGenerating(false)
+          return
+        }
+        setTimeout(poll, 2000)
+      }
+      poll()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to queue PDF')
+      setPdfGenerating(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -415,16 +446,14 @@ export function BillsPage() {
                 <IconPrinter className="mr-2 h-4 w-4" />
                 {isPrinting ? 'Printing...' : `Print Selected (${selectedIds.size})`}
               </Button>
-              <a
-                href={`${API_BASE}/bills/bulk-pdf?ids=${Array.from(selectedIds).join('&ids[]=')}`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Button
+                variant="outline"
+                disabled={pdfGenerating}
+                onClick={handleBulkPdf}
               >
-                <Button variant="outline">
-                  <IconFile className="mr-2 h-4 w-4 text-red-600" />
-                  PDF Selected ({selectedIds.size})
-                </Button>
-              </a>
+                <IconFile className="mr-2 h-4 w-4 text-red-600" />
+                {pdfGenerating ? `Generating PDF... (${pdfBatchId})` : `PDF Selected (${selectedIds.size})`}
+              </Button>
             </>
           )}
           <Button variant="outline" onClick={() => setBulkProcessOpen(true)}>

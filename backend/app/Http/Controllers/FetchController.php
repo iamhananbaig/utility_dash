@@ -37,6 +37,24 @@ class FetchController extends Controller
         ], 201);
     }
 
+    public function storeSingle(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'reference_no' => 'required|string|max:255',
+            'provider' => 'nullable|string|max:255',
+        ]);
+
+        $batch = $this->fetchService->startSingle(
+            $validated['reference_no'],
+            $validated['provider'] ?? 'iesco',
+        );
+
+        return response()->json([
+            'batch_id' => $batch->id,
+            'total_refs' => 1,
+        ], 201);
+    }
+
     public function latest(): JsonResponse
     {
         $batch = FetchBatch::latest()->first();

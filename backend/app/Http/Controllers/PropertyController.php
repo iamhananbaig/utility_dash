@@ -11,7 +11,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
 
 class PropertyController extends Controller
 {
@@ -124,7 +123,7 @@ class PropertyController extends Controller
         $fullPath = Storage::disk('local')->path($path);
 
         $import = new RawSpreadsheetImport;
-        Excel::import($import, $fullPath);
+        $import->load($fullPath);
         $spreadsheet = $import->rows;
 
         if ($spreadsheet === null || $spreadsheet->isEmpty()) {
@@ -152,8 +151,9 @@ class PropertyController extends Controller
 
         $imported = 0;
         $skipped = 0;
+        $errors = [];
 
-        DB::transaction(function () use ($rows, $nameIndex, $refIndex, $providerIndex, $meterIndex, $locationIndex, $typeIndex, &$imported, &$skipped) {
+        DB::transaction(function () use ($rows, $nameIndex, $refIndex, $providerIndex, $meterIndex, $locationIndex, $typeIndex, &$imported, &$skipped, &$errors) {
             foreach ($rows as $row) {
                 $name = trim((string) ($row[$nameIndex] ?? ''));
                 $refNo = trim((string) ($row[$refIndex] ?? ''));
@@ -179,6 +179,13 @@ class PropertyController extends Controller
                             $locationId = $location->id;
                         }
                     }
+                }
+
+                if ($locationId === null) {
+                    $skipped++;
+                    $errors[] = "{$refNo}: location not found";
+
+                    continue;
                 }
 
                 $propertyType = 'branch';
@@ -215,6 +222,7 @@ class PropertyController extends Controller
             'message' => "Imported {$imported} properties, skipped {$skipped}",
             'imported' => $imported,
             'skipped' => $skipped,
+            'errors' => $errors,
         ]);
     }
 
@@ -245,7 +253,7 @@ class PropertyController extends Controller
         $fullPath = Storage::disk('local')->path($path);
 
         $import = new RawSpreadsheetImport;
-        Excel::import($import, $fullPath);
+        $import->load($fullPath);
         $spreadsheet = $import->rows;
 
         if ($spreadsheet === null || $spreadsheet->isEmpty()) {

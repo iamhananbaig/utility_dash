@@ -2,13 +2,14 @@
 
 namespace App\Services;
 
+use App\Imports\RawSpreadsheetImport;
 use App\Models\Bill;
 use App\Models\PaymentProof;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
 
 class PaymentService
 {
@@ -17,7 +18,9 @@ class PaymentService
         $path = $file->store('payment-proofs', 'local');
         $fullPath = Storage::disk('local')->path($path);
 
-        $spreadsheet = Excel::toCollection(null, $fullPath)->first();
+        $import = new RawSpreadsheetImport;
+        $import->load($fullPath);
+        $spreadsheet = $import->rows;
         $matched = 0;
         $notFound = 0;
         $errors = [];
@@ -27,6 +30,11 @@ class PaymentService
         }
 
         $headers = $spreadsheet->first();
+
+        if ($headers instanceof Collection) {
+            $headers = $headers->toArray();
+        }
+
         $rows = $spreadsheet->slice(1);
 
         $refIndex = $this->findColumnIndex($headers, ['reference_no', 'reference', 'ref_no', 'refno']);

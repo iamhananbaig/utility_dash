@@ -23,6 +23,7 @@ Route::get('properties/{id}/history', [PropertyController::class, 'history']);
 Route::apiResource('properties', PropertyController::class);
 
 Route::post('fetch', [FetchController::class, 'store']);
+Route::post('fetch/single', [FetchController::class, 'storeSingle']);
 Route::get('fetch/latest', [FetchController::class, 'latest']);
 Route::get('fetch/{id}/status', [FetchController::class, 'status']);
 Route::get('fetch/{id}/results', [FetchController::class, 'results']);
@@ -41,6 +42,8 @@ Route::patch('bills/{id}/amount', [BillController::class, 'updateAmount']);
 Route::get('bills/{id}/html', [BillController::class, 'showHtml']);
 Route::get('bills/{id}/pdf', [BillController::class, 'pdf']);
 Route::post('bills/bulk-pdf', [BillController::class, 'bulkPdf']);
+Route::get('pdf/{id}/status', [BillController::class, 'pdfBatchStatus']);
+Route::get('pdf/{id}/download', [BillController::class, 'pdfBatchDownload']);
 Route::post('bills/generate-pdf', [BillController::class, 'generatePdf']);
 Route::get('bills/pdf-status', [BillController::class, 'pdfStatus']);
 

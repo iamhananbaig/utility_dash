@@ -33,4 +33,17 @@ class BillFetchService
 
         return $batch;
     }
+
+    public function startSingle(string $referenceNo, string $provider = 'iesco'): FetchBatch
+    {
+        $batch = FetchBatch::create([
+            'total_refs' => 1,
+            'status' => 'running',
+            'started_at' => now(),
+        ]);
+
+        FetchBillJob::dispatch($batch->id, [$referenceNo], $provider);
+
+        return $batch;
+    }
 }

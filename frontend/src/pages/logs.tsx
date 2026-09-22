@@ -10,12 +10,19 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { IconEye } from '@tabler/icons-react'
 import { formatDateTime } from '@/lib/utils'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
@@ -43,6 +50,7 @@ export function LogsPage() {
   const [page, setPage] = useState(1)
   const [filterType, setFilterType] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -98,7 +106,7 @@ export function LogsPage() {
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Message</TableHead>
-                  <TableHead>Details</TableHead>
+                  <TableHead className="w-16"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -127,8 +135,16 @@ export function LogsPage() {
                       <TableCell className="text-xs max-w-md truncate">
                         {log.message}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
-                        {log.details ? JSON.stringify(log.details) : '-'}
+                      <TableCell>
+                        {log.details && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSelectedLog(log)}
+                          >
+                            <IconEye className="h-4 w-4" />
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -162,6 +178,25 @@ export function LogsPage() {
           </div>
         </>
       ) : null}
+
+      <Dialog open={!!selectedLog} onOpenChange={(open) => { if (!open) setSelectedLog(null) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedLog?.type} — {selectedLog?.status}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {formatDateTime(selectedLog?.created_at || '')}
+            </p>
+            <p className="text-sm">{selectedLog?.message}</p>
+            <pre className="max-h-96 overflow-auto rounded-md bg-muted p-4 text-xs whitespace-pre-wrap break-all">
+              {selectedLog?.details ? JSON.stringify(selectedLog.details, null, 2) : 'No details'}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
