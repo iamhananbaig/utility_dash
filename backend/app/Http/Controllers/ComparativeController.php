@@ -82,25 +82,15 @@ class ComparativeController extends Controller
             $currentUnits = $currentBill->raw_data['ENERGY_DETAILS_UNITS'] ?? null;
             $currentAmount = $currentBill->website_payable;
 
-            // Prior month: prefer saved bill, fallback to current bill's history fields
+            // Prior month: only from saved bills
             $prevBill = $billsByMonth->get($prevMonthStr);
-            if ($prevBill) {
-                $prevUnits = $prevBill->raw_data['ENERGY_DETAILS_UNITS'] ?? null;
-                $prevAmount = $prevBill->website_payable;
-            } else {
-                $prevUnits = $currentBill->history_last_kwh_units ?: null;
-                $prevAmount = $currentBill->history_last_bill_rs ?: null;
-            }
+            $prevUnits = $prevBill ? ($prevBill->raw_data['ENERGY_DETAILS_UNITS'] ?? null) : null;
+            $prevAmount = $prevBill ? $prevBill->website_payable : null;
 
-            // Last year: prefer saved bill, fallback to current bill's history fields
+            // Last year: only from saved bills
             $lastYearBill = $billsByMonth->get($lastYearStr);
-            if ($lastYearBill) {
-                $lastYearUnits = $lastYearBill->raw_data['ENERGY_DETAILS_UNITS'] ?? null;
-                $lastYearAmount = $lastYearBill->website_payable;
-            } else {
-                $lastYearUnits = $currentBill->history_first_kwh_units ?: null;
-                $lastYearAmount = $currentBill->history_first_bill_rs ?: null;
-            }
+            $lastYearUnits = $lastYearBill ? ($lastYearBill->raw_data['ENERGY_DETAILS_UNITS'] ?? null) : null;
+            $lastYearAmount = $lastYearBill ? $lastYearBill->website_payable : null;
 
             $results[] = [
                 'reference_no' => $refNo,

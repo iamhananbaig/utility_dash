@@ -13,6 +13,7 @@ Route::get('/samples/{file}', function (string $file) {
         'payment_upload_sample.xlsx',
         'bulk_ref_update_sample.xlsx',
         'location_import_sample.xlsx',
+        'bills_import_sample.xlsx',
     ];
 
     if (! in_array($file, $allowed)) {

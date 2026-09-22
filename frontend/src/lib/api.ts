@@ -241,6 +241,18 @@ export const bills = {
     });
     return response.json();
   },
+  import: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE}/bills/import`, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: formData,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Import failed');
+    return data;
+  },
   manualPayment: (data: {
     reference_no: string;
     voucher_no: string;

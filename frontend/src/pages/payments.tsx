@@ -1,15 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
-import { payments as paymentsApi, bills as billsApi, type PaymentProof } from '@/lib/api'
+import { payments as paymentsApi, type PaymentProof } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -18,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { IconUpload, IconPlus } from '@tabler/icons-react'
+import { IconUpload } from '@tabler/icons-react'
 import { formatDate } from '@/lib/utils'
 
 export function PaymentsPage() {
@@ -28,18 +21,6 @@ export function PaymentsPage() {
   const [lastPage, setLastPage] = useState(1)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Manual entry form
-  const [formOpen, setFormOpen] = useState(false)
-  const [form, setForm] = useState({
-    reference_no: '',
-    voucher_no: '',
-    instruction_id: '',
-    batch_no: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    status: 'in_process' as 'in_process' | 'paid',
-  })
-  const [saving, setSaving] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -68,30 +49,6 @@ export function PaymentsPage() {
     }
   }
 
-  const handleManualSubmit = async () => {
-    if (!form.reference_no.trim() || !form.voucher_no.trim()) return
-    setSaving(true)
-    try {
-      const result = await billsApi.manualPayment(form)
-      alert(result.message)
-      setFormOpen(false)
-      setForm({
-        reference_no: '',
-        voucher_no: '',
-        instruction_id: '',
-        batch_no: '',
-        payment_date: new Date().toISOString().split('T')[0],
-        status: 'in_process',
-      })
-      load()
-    } catch (err: unknown) {
-      const error = err as { message?: string }
-      alert(error.message || 'Failed to process payment')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -112,91 +69,8 @@ export function PaymentsPage() {
             <IconUpload className="mr-2 h-4 w-4" />
             {uploading ? 'Uploading...' : 'Upload Excel'}
           </Button>
-          <Button onClick={() => setFormOpen(true)}>
-            <IconPlus className="mr-2 h-4 w-4" />
-            Manual Entry
-          </Button>
         </div>
       </div>
-
-      {/* Manual Entry Form */}
-      {formOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Manual Payment Entry</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm font-medium">Reference No <span className="text-destructive">*</span></label>
-                <Input
-                  value={form.reference_no}
-                  onChange={(e) => setForm({ ...form, reference_no: e.target.value })}
-                  placeholder="14-digit reference"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Voucher No <span className="text-destructive">*</span></label>
-                <Input
-                  value={form.voucher_no}
-                  onChange={(e) => setForm({ ...form, voucher_no: e.target.value })}
-                  placeholder="Voucher number"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Instruction ID</label>
-                <Input
-                  value={form.instruction_id}
-                  onChange={(e) => setForm({ ...form, instruction_id: e.target.value })}
-                  placeholder="Optional"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Batch No</label>
-                <Input
-                  value={form.batch_no}
-                  onChange={(e) => setForm({ ...form, batch_no: e.target.value })}
-                  placeholder="Optional text"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Date</label>
-                <Input
-                  type="date"
-                  value={form.payment_date}
-                  onChange={(e) => setForm({ ...form, payment_date: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v) => setForm({ ...form, status: (v ?? 'in_process') as 'in_process' | 'paid' })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="in_process">In Process</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <Button
-                onClick={handleManualSubmit}
-                disabled={!form.reference_no.trim() || !form.voucher_no.trim() || saving}
-              >
-                {saving ? 'Saving...' : 'Submit'}
-              </Button>
-              <Button variant="outline" onClick={() => setFormOpen(false)}>
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Upload Instructions */}
       <Card>

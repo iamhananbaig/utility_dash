@@ -21,16 +21,34 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
+function fmt(value: number | null | undefined): string {
+  if (value === null || value === undefined || value === 0) return '-'
+  return Math.round(value).toLocaleString('en-US')
+}
+
+function fmtRate(units: number | null | undefined, amount: number | null | undefined): string {
+  if (!units || units <= 0 || !amount) return '-'
+  const rate = Math.round(amount / units)
+  if (rate === 0) return '-'
+  return rate.toLocaleString('en-US')
+}
+
+interface MonthlyData {
+  amount: number
+  units: number | null
+}
+
 interface TrendData {
   location: { id: number; code: string }
   year: number
   months: string[]
   totals: number[]
+  units_totals: number[]
   properties: Array<{
     reference_no: string
     name: string
     property_type: string
-    monthly_amounts: Record<string, { amount: number; estimated: boolean } | null>
+    monthly_data: Record<string, MonthlyData | null>
   }>
 }
 
@@ -61,12 +79,15 @@ export function LocationTrendPage() {
   const chartData = data
     ? data.months.map((month, i) => ({
         name: month,
-        total: data.totals[i],
+        units: data.units_totals[i],
       }))
     : []
 
   const currentYear = new Date().getFullYear()
   const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3]
+
+  const stickyHeaders = (offset: string) =>
+    `sticky left-${offset} bg-background z-10`
 
   return (
     <div className="space-y-6">
@@ -109,24 +130,24 @@ export function LocationTrendPage() {
 
       {data && !loading && (
         <>
-          {/* Bar Chart */}
+          {/* Units Bar Chart */}
           <Card>
             <CardHeader>
               <CardTitle>
-                Total Monthly Rent — {data.location.code} ({data.year})
+                Total Monthly Units — {data.location.code} ({data.year})
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {chartData.some((d) => d.total > 0) ? (
+              {chartData.some((d) => d.units > 0) ? (
                 <ResponsiveContainer width="100%" height={350}>
                   <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(value) => `Rs. ${Number(value).toLocaleString()}`}
+                      formatter={(value) => `${Number(value).toLocaleString()} kWh`}
                     />
-                    <Bar dataKey="total" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="units" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -137,80 +158,145 @@ export function LocationTrendPage() {
             </CardContent>
           </Card>
 
-          {/* Property Detail Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Property Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.properties.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No properties in this location.</p>
-              ) : (
-                <div className="overflow-x-auto rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="sticky left-0 bg-background z-10">Ref No</TableHead>
-                        <TableHead className="sticky left-28 bg-background z-10">Property</TableHead>
-                        <TableHead className="sticky left-56 bg-background z-10">Type</TableHead>
-                        {data.months.map((month) => (
-                          <TableHead key={month} className="text-right text-xs min-w-[80px]">
-                            {month}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {data.properties.map((prop) => (
-                        <TableRow key={prop.reference_no}>
-                          <TableCell className="font-mono text-xs sticky left-0 bg-background z-10">
-                            {prop.reference_no}
-                          </TableCell>
-                          <TableCell className="text-xs sticky left-28 bg-background z-10">
-                            {prop.name}
-                          </TableCell>
-                          <TableCell className="sticky left-56 bg-background z-10">
-                            <Badge variant="outline" className="text-xs">
-                              {prop.property_type}
-                            </Badge>
-                          </TableCell>
-                          {data.months.map((month) => {
-                            const val = prop.monthly_amounts[month]
-                            return (
-                              <TableCell key={month} className="text-right text-xs">
-                                {val ? (
-                                  <span className={val.estimated ? 'text-muted-foreground italic' : ''}>
-                                    {val.amount.toLocaleString()}
-                                    {val.estimated && <span className="text-[10px] ml-0.5">*</span>}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground">-</span>
-                                )}
-                              </TableCell>
-                            )
-                          })}
+          {data.properties.length > 0 && (
+            <>
+              {/* Units Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Units (kWh)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="sticky left-0 bg-background z-10">Ref No</TableHead>
+                          <TableHead className="sticky left-28 bg-background z-10">Property</TableHead>
+                          <TableHead className="sticky left-56 bg-background z-10">Type</TableHead>
+                          {data.months.map((month) => (
+                            <TableHead key={month} className="text-right text-xs min-w-[80px]">{month}</TableHead>
+                          ))}
                         </TableRow>
-                      ))}
-                      {/* Totals row */}
-                      <TableRow className="font-bold border-t-2">
-                        <TableCell className="sticky left-0 bg-background z-10">Total</TableCell>
-                        <TableCell className="sticky left-28 bg-background z-10"></TableCell>
-                        <TableCell className="sticky left-56 bg-background z-10"></TableCell>
-                        {data.months.map((month, i) => (
-                          <TableCell key={month} className="text-right text-xs">
-                            {data.totals[i] > 0 ? data.totals[i].toLocaleString() : '-'}
-                          </TableCell>
+                      </TableHeader>
+                      <TableBody>
+                        {data.properties.map((prop) => (
+                          <TableRow key={prop.reference_no}>
+                            <TableCell className="font-mono text-xs sticky left-0 bg-background z-10">{prop.reference_no}</TableCell>
+                            <TableCell className="text-xs sticky left-28 bg-background z-10">{prop.name}</TableCell>
+                            <TableCell className="sticky left-56 bg-background z-10"><Badge variant="outline" className="text-xs">{prop.property_type}</Badge></TableCell>
+                            {data.months.map((month) => (
+                              <TableCell key={month} className="text-right text-xs">{fmt(prop.monthly_data[month]?.units)}</TableCell>
+                            ))}
+                          </TableRow>
                         ))}
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground mt-2">
-                * Estimated from bill history fields (prior/last year data)
-              </p>
-            </CardContent>
-          </Card>
+                        <TableRow className="font-bold border-t-2">
+                          <TableCell className="sticky left-0 bg-background z-10">Total</TableCell>
+                          <TableCell className="sticky left-28 bg-background z-10"></TableCell>
+                          <TableCell className="sticky left-56 bg-background z-10"></TableCell>
+                          {data.units_totals.map((total, i) => (
+                            <TableCell key={i} className="text-right text-xs">{fmt(total)}</TableCell>
+                          ))}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Rate Per Unit Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Rate Per Unit (Rs./kWh)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="sticky left-0 bg-background z-10">Ref No</TableHead>
+                          <TableHead className="sticky left-28 bg-background z-10">Property</TableHead>
+                          <TableHead className="sticky left-56 bg-background z-10">Type</TableHead>
+                          {data.months.map((month) => (
+                            <TableHead key={month} className="text-right text-xs min-w-[80px]">{month}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.properties.map((prop) => (
+                          <TableRow key={prop.reference_no}>
+                            <TableCell className="font-mono text-xs sticky left-0 bg-background z-10">{prop.reference_no}</TableCell>
+                            <TableCell className="text-xs sticky left-28 bg-background z-10">{prop.name}</TableCell>
+                            <TableCell className="sticky left-56 bg-background z-10"><Badge variant="outline" className="text-xs">{prop.property_type}</Badge></TableCell>
+                            {data.months.map((month) => {
+                              const d = prop.monthly_data[month]
+                              return (
+                                <TableCell key={month} className="text-right text-xs">
+                                  {fmtRate(d?.units, d?.amount)}
+                                </TableCell>
+                              )
+                            })}
+                          </TableRow>
+                        ))}
+                        <TableRow className="font-bold border-t-2">
+                          <TableCell className="sticky left-0 bg-background z-10">Total</TableCell>
+                          <TableCell className="sticky left-28 bg-background z-10"></TableCell>
+                          <TableCell className="sticky left-56 bg-background z-10"></TableCell>
+                          {data.months.map((month, i) => (
+                            <TableCell key={month} className="text-right text-xs">
+                              {fmtRate(data.units_totals[i], data.totals[i])}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Amount Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Amount (Rs.)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="sticky left-0 bg-background z-10">Ref No</TableHead>
+                          <TableHead className="sticky left-28 bg-background z-10">Property</TableHead>
+                          <TableHead className="sticky left-56 bg-background z-10">Type</TableHead>
+                          {data.months.map((month) => (
+                            <TableHead key={month} className="text-right text-xs min-w-[80px]">{month}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.properties.map((prop) => (
+                          <TableRow key={prop.reference_no}>
+                            <TableCell className="font-mono text-xs sticky left-0 bg-background z-10">{prop.reference_no}</TableCell>
+                            <TableCell className="text-xs sticky left-28 bg-background z-10">{prop.name}</TableCell>
+                            <TableCell className="sticky left-56 bg-background z-10"><Badge variant="outline" className="text-xs">{prop.property_type}</Badge></TableCell>
+                            {data.months.map((month) => (
+                              <TableCell key={month} className="text-right text-xs">{fmt(prop.monthly_data[month]?.amount)}</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                        <TableRow className="font-bold border-t-2">
+                          <TableCell className="sticky left-0 bg-background z-10">Total</TableCell>
+                          <TableCell className="sticky left-28 bg-background z-10"></TableCell>
+                          <TableCell className="sticky left-56 bg-background z-10"></TableCell>
+                          {data.totals.map((total, i) => (
+                            <TableCell key={i} className="text-right text-xs">{fmt(total)}</TableCell>
+                          ))}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </>
       )}
     </div>

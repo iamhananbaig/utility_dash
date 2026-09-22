@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Imports\RawSpreadsheetImport;
 use App\Models\Bill;
 use App\Models\PaymentProof;
+use App\Models\Property;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -38,6 +39,7 @@ class PaymentService
         $rows = $spreadsheet->slice(1);
 
         $refIndex = $this->findColumnIndex($headers, ['reference_no', 'reference', 'ref_no', 'refno']);
+        $billMonthIndex = $this->findColumnIndex($headers, ['bill_month', 'month']);
         $amountIndex = $this->findColumnIndex($headers, ['amount_paid', 'amount', 'paid_amount', 'payment_amount']);
         $dateIndex = $this->findColumnIndex($headers, ['date', 'payment_date', 'paid_date']);
         $instructionIndex = $this->findColumnIndex($headers, ['instruction_id', 'instruction']);
@@ -50,7 +52,7 @@ class PaymentService
             return ['matched' => 0, 'not_found' => 0, 'errors' => ['Required columns not found: reference_no, voucher_no']];
         }
 
-        DB::transaction(function () use ($rows, $refIndex, $amountIndex, $dateIndex, $instructionIndex, $batchIndex, $voucherIndex, $payableIndex, $statusIndex, $path, $file, &$matched, &$notFound, &$errors) {
+        DB::transaction(function () use ($rows, $refIndex, $billMonthIndex, $amountIndex, $dateIndex, $instructionIndex, $batchIndex, $voucherIndex, $payableIndex, $statusIndex, $path, $file, &$matched, &$notFound, &$errors) {
             foreach ($rows as $row) {
                 $refNo = trim((string) ($row[$refIndex] ?? ''));
                 $voucherNo = trim((string) ($row[$voucherIndex] ?? ''));
@@ -59,11 +61,34 @@ class PaymentService
                     continue;
                 }
 
-                $bill = Bill::whereHas('property', function ($q) use ($refNo) {
-                    $q->where('reference_no', $refNo);
-                })->first();
+                // Find property by current reference_no or by old reference_no in history
+                $property = Property::where('reference_no', $refNo)
+                    ->orWhereHas('referenceHistories', function ($q) use ($refNo) {
+                        $q->where('new_reference_no', $refNo);
+                    })->first();
 
-                if ($bill === null) {
+                if (! $property) {
+                    $notFound++;
+
+                    continue;
+                }
+
+                // Find bill by property + bill_month if provided
+                $bill = null;
+                $billMonth = $billMonthIndex !== null ? strtoupper(trim((string) ($row[$billMonthIndex] ?? ''))) : null;
+
+                $billQuery = Bill::where('property_id', $property->id);
+
+                if ($billMonth !== '' && $billMonth !== null) {
+                    $parsed = $this->parseBillMonth($billMonth);
+                    if ($parsed) {
+                        $billQuery->where('bill_month', strtoupper($parsed->format('M y')));
+                    }
+                }
+
+                $bill = $billQuery->first();
+
+                if (! $bill) {
                     $notFound++;
 
                     continue;
@@ -105,19 +130,43 @@ class PaymentService
 
                 $bill->update($updateData);
 
-                PaymentProof::create([
-                    'bill_id' => $bill->id,
-                    'file_path' => $path,
-                    'file_type' => 'excel',
-                    'original_name' => $file->getClientOriginalName(),
-                    'notes' => "Voucher: {$voucherNo}, Status: {$status}",
-                ]);
+                // Skip duplicate PaymentProof if same file already uploaded for this bill
+                $existingProof = PaymentProof::where('bill_id', $bill->id)
+                    ->where('file_path', $path)
+                    ->first();
+
+                if (! $existingProof) {
+                    PaymentProof::create([
+                        'bill_id' => $bill->id,
+                        'file_path' => $path,
+                        'file_type' => 'excel',
+                        'original_name' => $file->getClientOriginalName(),
+                        'notes' => "Voucher: {$voucherNo}, Status: {$status}",
+                    ]);
+                }
 
                 $matched++;
             }
         });
 
         return ['matched' => $matched, 'not_found' => $notFound, 'errors' => $errors];
+    }
+
+    private function parseBillMonth(string $billMonth): ?Carbon
+    {
+        try {
+            return Carbon::createFromFormat('M y', $billMonth);
+        } catch (\Throwable) {
+            try {
+                return Carbon::createFromFormat('M Y', $billMonth);
+            } catch (\Throwable) {
+                try {
+                    return Carbon::parse($billMonth);
+                } catch (\Throwable) {
+                    return null;
+                }
+            }
+        }
     }
 
     private function findColumnIndex(array $headers, array $candidates): ?int

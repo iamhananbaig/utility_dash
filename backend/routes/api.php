@@ -31,6 +31,7 @@ Route::get('fetch/{id}/download', [FetchController::class, 'download']);
 
 Route::get('bills', [BillController::class, 'index']);
 Route::get('bills/export', [BillController::class, 'export']);
+Route::post('bills/import', [BillController::class, 'import']);
 Route::post('bills/bulk-process', [BillController::class, 'bulkProcess']);
 Route::post('bills/manual-payment', [BillController::class, 'manualPayment']);
 Route::patch('bills/{id}/process', [BillController::class, 'process']);

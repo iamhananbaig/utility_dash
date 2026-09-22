@@ -36,6 +36,7 @@ import {
   IconCheck,
   IconPrinter,
   IconFile,
+  IconUpload,
 } from '@tabler/icons-react'
 import { formatDate } from '@/lib/utils'
 
@@ -114,18 +115,15 @@ export function BillsPage() {
     voucher_no: '',
   })
   const [processSaving, setProcessSaving] = useState(false)
-  const [bulkProcessOpen, setBulkProcessOpen] = useState(false)
-  const [bulkFile, setBulkFile] = useState<File | null>(null)
-  const [bulkProcessing, setBulkProcessing] = useState(false)
   const [pdfBatchId, setPdfBatchId] = useState<number | null>(null)
   const [pdfGenerating, setPdfGenerating] = useState(false)
-  const bulkFileRef = useRef<HTMLInputElement>(null)
   const [editAmountOpen, setEditAmountOpen] = useState(false)
   const [editAmountBill, setEditAmountBill] = useState<Bill | null>(null)
   const [editAmount, setEditAmount] = useState('')
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
   const [pdfDialogBill, setPdfDialogBill] = useState<Bill | null>(null)
   const [generatingPdfId, setGeneratingPdfId] = useState<number | null>(null)
+  const billImportRef = useRef<HTMLInputElement>(null)
   const [payDialogOpen, setPayDialogOpen] = useState(false)
   const [payDialogBill, setPayDialogBill] = useState<Bill | null>(null)
   const [payDialogBulk, setPayDialogBulk] = useState(false)
@@ -228,20 +226,6 @@ export function BillsPage() {
       load()
     } finally {
       setProcessSaving(false)
-    }
-  }
-
-  const submitBulkProcess = async () => {
-    if (!bulkFile) return
-    setBulkProcessing(true)
-    try {
-      const result = await billsApi.bulkProcess(bulkFile)
-      alert(result.message)
-      setBulkProcessOpen(false)
-      setBulkFile(null)
-      load()
-    } finally {
-      setBulkProcessing(false)
     }
   }
 
@@ -431,6 +415,19 @@ export function BillsPage() {
     }
   }
 
+  const handleBillImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const result = await billsApi.import(file)
+      alert(result.message)
+      load()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Import failed')
+    }
+    if (billImportRef.current) billImportRef.current.value = ''
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -456,9 +453,6 @@ export function BillsPage() {
               </Button>
             </>
           )}
-          <Button variant="outline" onClick={() => setBulkProcessOpen(true)}>
-            Bulk Process
-          </Button>
           <Button
             variant="outline"
             onClick={() =>
@@ -468,6 +462,24 @@ export function BillsPage() {
             <IconDownload className="mr-2 h-4 w-4" />
             Export Excel
           </Button>
+          <input
+            ref={billImportRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleBillImport}
+          />
+          <Button variant="outline" onClick={() => billImportRef.current?.click()}>
+            <IconUpload className="mr-2 h-4 w-4" />
+            Import Historical Bills
+          </Button>
+          <a
+            href="/samples/bills_import_sample.xlsx"
+            download
+            className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
+          >
+            Download Template
+          </a>
         </div>
       </div>
 
@@ -793,39 +805,6 @@ export function BillsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Process Dialog */}
-      <Dialog open={bulkProcessOpen} onOpenChange={setBulkProcessOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Bulk Process Payments</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Upload Excel with columns: <strong>reference_no</strong>, <strong>voucher_no</strong> (required),{' '}
-              <strong>instruction_id</strong>, <strong>batch_no</strong>, <strong>date</strong> (optional).
-            </p>
-            <input
-              ref={bulkFileRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
-            />
-            <Button variant="outline" onClick={() => bulkFileRef.current?.click()}>
-              {bulkFile ? bulkFile.name : 'Select File'}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setBulkProcessOpen(false); setBulkFile(null) }}>
-              Cancel
-            </Button>
-            <Button onClick={submitBulkProcess} disabled={!bulkFile || bulkProcessing}>
-              {bulkProcessing ? 'Processing...' : 'Process'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit Amount Dialog */}
       <Dialog open={editAmountOpen} onOpenChange={setEditAmountOpen}>
         <DialogContent>
@@ -913,11 +892,11 @@ export function BillsPage() {
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium">Instruction ID</label>
+              <label className="text-sm font-medium">Instruction ID <span className="text-destructive">*</span></label>
               <Input
                 value={payForm.instruction_id}
                 onChange={(e) => setPayForm({ ...payForm, instruction_id: e.target.value })}
-                placeholder="Optional — must be unique across all bills"
+                placeholder="Required — must be unique across all bills"
               />
             </div>
             <div>
@@ -935,7 +914,7 @@ export function BillsPage() {
             </Button>
             <Button
               onClick={submitPay}
-              disabled={!payForm.batch_no.trim() || paySaving}
+              disabled={!payForm.batch_no.trim() || !payForm.instruction_id.trim() || paySaving}
             >
               {paySaving ? 'Saving...' : 'Mark as Paid'}
             </Button>

@@ -3,14 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Exports\BillsExport;
+use App\Imports\RawSpreadsheetImport;
 use App\Jobs\BulkPdfJob;
 use App\Jobs\GenerateBillPdfJob;
 use App\Models\Bill;
 use App\Models\PdfBatch;
+use App\Models\Property;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
@@ -138,12 +141,12 @@ class BillController extends Controller
 
         $validated = $request->validate([
             'batch_no' => 'required|string|max:255',
-            'instruction_id' => 'nullable|string|max:255',
+            'instruction_id' => 'required|string|max:255',
             'payment_date' => 'nullable|date',
         ]);
 
         $batchNo = $validated['batch_no'];
-        $instructionId = $validated['instruction_id'] ?? null;
+        $instructionId = $validated['instruction_id'];
 
         // Validation: if batch = SI, only one bill at a time
         if (strtolower($batchNo) === 'si' && $bill->status !== 'in_process') {
@@ -178,12 +181,12 @@ class BillController extends Controller
             'ids' => 'required|array|min:1',
             'ids.*' => 'integer',
             'batch_no' => 'required|string|max:255',
-            'instruction_id' => 'nullable|string|max:255',
+            'instruction_id' => 'required|string|max:255',
             'payment_date' => 'nullable|date',
         ]);
 
         $batchNo = $validated['batch_no'];
-        $instructionId = $validated['instruction_id'] ?? null;
+        $instructionId = $validated['instruction_id'];
 
         // Validation: if batch = SI, only one bill allowed
         if (strtolower($batchNo) === 'si' && count($validated['ids']) > 1) {
@@ -620,6 +623,149 @@ class BillController extends Controller
             'jobs_pending' => $pendingJobs,
             'jobs_running' => $reservedJobs,
         ]);
+    }
+
+    public function import(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->store('imports', 'local');
+        $fullPath = Storage::disk('local')->path($path);
+
+        $import = new RawSpreadsheetImport;
+        $import->load($fullPath);
+        $spreadsheet = $import->rows;
+
+        if ($spreadsheet === null || $spreadsheet->isEmpty()) {
+            return response()->json(['message' => 'Empty file'], 422);
+        }
+
+        $headers = $spreadsheet->first();
+
+        if ($headers instanceof Collection) {
+            $headers = $headers->toArray();
+        }
+
+        $rows = $spreadsheet->slice(1);
+
+        $refIndex = $this->findColumnIndex($headers, ['reference_no', 'ref_no', 'refno']);
+        $monthIndex = $this->findColumnIndex($headers, ['bill_month', 'month']);
+        $amountIndex = $this->findColumnIndex($headers, ['website_payable', 'amount', 'payable', 'bill_amount']);
+        $unitsIndex = $this->findColumnIndex($headers, ['units', 'kwh', 'energy_units']);
+        $issueDateIndex = $this->findColumnIndex($headers, ['issue_date']);
+        $dueDateIndex = $this->findColumnIndex($headers, ['due_date']);
+        $statusIndex = $this->findColumnIndex($headers, ['status', 'payment_status']);
+
+        if ($refIndex === null || $monthIndex === null || $amountIndex === null) {
+            return response()->json(['message' => 'Required columns not found: reference_no, bill_month, website_payable'], 422);
+        }
+
+        $imported = 0;
+        $skipped = 0;
+        $errors = [];
+
+        DB::transaction(function () use ($rows, $refIndex, $monthIndex, $amountIndex, $unitsIndex, $issueDateIndex, $dueDateIndex, $statusIndex, &$imported, &$skipped, &$errors) {
+            foreach ($rows as $row) {
+                $refNo = trim((string) ($row[$refIndex] ?? ''));
+                $billMonth = strtoupper(trim((string) ($row[$monthIndex] ?? '')));
+                $amount = (float) ($row[$amountIndex] ?? 0);
+
+                if ($refNo === '' || $billMonth === '' || $amount <= 0) {
+                    $skipped++;
+                    $errors[] = "{$refNo}: missing ref, month, or amount";
+
+                    continue;
+                }
+
+                $property = Property::where('reference_no', $refNo)->first();
+                if (! $property) {
+                    $skipped++;
+                    $errors[] = "{$refNo}: property not found";
+
+                    continue;
+                }
+
+                // Normalize bill_month to "MMM YY" format
+                $parsed = $this->parseBillMonth($billMonth);
+                if (! $parsed) {
+                    $skipped++;
+                    $errors[] = "{$refNo}: invalid month format '{$billMonth}'";
+
+                    continue;
+                }
+                $normalizedMonth = strtoupper($parsed->format('M y'));
+
+                // Skip if bill already exists
+                $existing = Bill::where('property_id', $property->id)
+                    ->where('bill_month', $normalizedMonth)
+                    ->first();
+
+                if ($existing) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $units = $unitsIndex !== null ? (float) ($row[$unitsIndex] ?? 0) : 0;
+
+                $billData = [
+                    'property_id' => $property->id,
+                    'provider' => $property->provider,
+                    'bill_month' => $normalizedMonth,
+                    'website_payable' => $amount,
+                    'status' => 'unpaid',
+                    'fetched_at' => now(),
+                ];
+
+                if ($issueDateIndex !== null) {
+                    $billData['issue_date'] = trim((string) ($row[$issueDateIndex] ?? ''));
+                }
+                if ($dueDateIndex !== null) {
+                    $billData['due_date'] = trim((string) ($row[$dueDateIndex] ?? ''));
+                }
+                if ($statusIndex !== null) {
+                    $statusVal = strtolower(trim((string) ($row[$statusIndex] ?? '')));
+                    if (in_array($statusVal, ['paid', 'unpaid', 'disputed', 'cancelled'])) {
+                        $billData['status'] = $statusVal;
+                    }
+                }
+
+                // Store units in raw_data if provided
+                if ($units > 0) {
+                    $billData['raw_data'] = ['ENERGY_DETAILS_UNITS' => $units];
+                }
+
+                Bill::create($billData);
+                $imported++;
+            }
+        });
+
+        return response()->json([
+            'message' => "Imported {$imported} bills, skipped {$skipped}",
+            'imported' => $imported,
+            'skipped' => $skipped,
+            'errors' => $errors,
+        ]);
+    }
+
+    private function parseBillMonth(string $billMonth): ?Carbon
+    {
+        try {
+            return Carbon::createFromFormat('M y', $billMonth);
+        } catch (\Throwable) {
+            try {
+                return Carbon::createFromFormat('M Y', $billMonth);
+            } catch (\Throwable) {
+                try {
+                    return Carbon::parse($billMonth);
+                } catch (\Throwable) {
+                    return null;
+                }
+            }
+        }
     }
 
     private function findColumnIndex(array $headers, array $candidates): ?int
