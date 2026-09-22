@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { payments as paymentsApi, type PaymentProof } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,

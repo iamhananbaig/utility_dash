@@ -9,18 +9,20 @@ use App\Jobs\GenerateBillPdfJob;
 use App\Models\Bill;
 use App\Models\PdfBatch;
 use App\Models\Property;
-use Carbon\Carbon;
+use App\Traits\HandlesBillMonths;
+use App\Traits\HandlesSpreadsheetColumns;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BillController extends Controller
 {
+    use HandlesBillMonths, HandlesSpreadsheetColumns;
+
     public function index(Request $request): JsonResponse
     {
         $query = Bill::with('property.location');
@@ -82,6 +84,7 @@ class BillController extends Controller
     {
         $validated = $request->validate([
             'reference_no' => 'required|string|max:255',
+            'bill_month' => 'required|string|max:255',
             'voucher_no' => 'required|string|max:255',
             'instruction_id' => 'nullable|string|max:255',
             'batch_no' => 'nullable|string|max:255',
@@ -91,10 +94,10 @@ class BillController extends Controller
 
         $bill = Bill::whereHas('property', function ($q) use ($validated) {
             $q->where('reference_no', $validated['reference_no']);
-        })->first();
+        })->where('bill_month', strtoupper($validated['bill_month']))->first();
 
         if (! $bill) {
-            return response()->json(['message' => 'Bill not found for reference: '.$validated['reference_no']], 404);
+            return response()->json(['message' => 'Bill not found for reference: '.$validated['reference_no'].' month: '.$validated['bill_month']], 404);
         }
 
         $updateData = [
@@ -194,17 +197,11 @@ class BillController extends Controller
         }
 
         // Validation: same instruction no cannot be used for multiple bills
-        if ($instructionId !== null) {
-            $existing = Bill::where('instruction_id', $instructionId)
-                ->whereIn('id', $validated['ids'])
-                ->exists();
-            if (! $existing) {
-                // Check if instruction is used by ANY bill
-                $usedElsewhere = Bill::where('instruction_id', $instructionId)->exists();
-                if ($usedElsewhere) {
-                    return response()->json(['message' => "Instruction ID '{$instructionId}' is already used for another bill"], 422);
-                }
-            }
+        $usedElsewhere = Bill::where('instruction_id', $instructionId)
+            ->whereNotIn('id', $validated['ids'])
+            ->exists();
+        if ($usedElsewhere) {
+            return response()->json(['message' => "Instruction ID '{$instructionId}' is already used for another bill"], 422);
         }
 
         $updated = 0;
@@ -336,7 +333,6 @@ class BillController extends Controller
             'website_payable' => 'required|numeric|min:0',
         ]);
 
-        $oldAmount = $bill->website_payable;
         $bill->update([
             'website_payable' => $validated['website_payable'],
             'payable_difference' => $bill->calculated_payable - $validated['website_payable'],
@@ -749,36 +745,5 @@ class BillController extends Controller
             'skipped' => $skipped,
             'errors' => $errors,
         ]);
-    }
-
-    private function parseBillMonth(string $billMonth): ?Carbon
-    {
-        try {
-            return Carbon::createFromFormat('M y', $billMonth);
-        } catch (\Throwable) {
-            try {
-                return Carbon::createFromFormat('M Y', $billMonth);
-            } catch (\Throwable) {
-                try {
-                    return Carbon::parse($billMonth);
-                } catch (\Throwable) {
-                    return null;
-                }
-            }
-        }
-    }
-
-    private function findColumnIndex(array $headers, array $candidates): ?int
-    {
-        foreach ($headers as $index => $header) {
-            $normalized = strtolower(trim((string) $header));
-            foreach ($candidates as $candidate) {
-                if ($normalized === $candidate) {
-                    return $index;
-                }
-            }
-        }
-
-        return null;
     }
 }

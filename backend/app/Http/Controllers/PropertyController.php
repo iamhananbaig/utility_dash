@@ -6,6 +6,7 @@ use App\Imports\RawSpreadsheetImport;
 use App\Models\Location;
 use App\Models\Property;
 use App\Models\ReferenceHistory;
+use App\Traits\HandlesSpreadsheetColumns;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
 {
+    use HandlesSpreadsheetColumns;
+
     public function index(Request $request): JsonResponse
     {
         $query = Property::with('location');
@@ -339,19 +342,5 @@ class PropertyController extends Controller
             'skipped' => $skipped,
             'errors' => $errors,
         ]);
-    }
-
-    private function findColumnIndex(array $headers, array $candidates): ?int
-    {
-        foreach ($headers as $index => $header) {
-            $normalized = strtolower(trim((string) $header));
-            foreach ($candidates as $candidate) {
-                if ($normalized === $candidate) {
-                    return $index;
-                }
-            }
-        }
-
-        return null;
     }
 }

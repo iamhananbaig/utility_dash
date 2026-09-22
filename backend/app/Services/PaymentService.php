@@ -6,7 +6,8 @@ use App\Imports\RawSpreadsheetImport;
 use App\Models\Bill;
 use App\Models\PaymentProof;
 use App\Models\Property;
-use Carbon\Carbon;
+use App\Traits\HandlesBillMonths;
+use App\Traits\HandlesSpreadsheetColumns;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Storage;
 
 class PaymentService
 {
+    use HandlesBillMonths, HandlesSpreadsheetColumns;
+
     public function processExcelUpload(UploadedFile $file): array
     {
         $path = $file->store('payment-proofs', 'local');
@@ -150,36 +153,5 @@ class PaymentService
         });
 
         return ['matched' => $matched, 'not_found' => $notFound, 'errors' => $errors];
-    }
-
-    private function parseBillMonth(string $billMonth): ?Carbon
-    {
-        try {
-            return Carbon::createFromFormat('M y', $billMonth);
-        } catch (\Throwable) {
-            try {
-                return Carbon::createFromFormat('M Y', $billMonth);
-            } catch (\Throwable) {
-                try {
-                    return Carbon::parse($billMonth);
-                } catch (\Throwable) {
-                    return null;
-                }
-            }
-        }
-    }
-
-    private function findColumnIndex(array $headers, array $candidates): ?int
-    {
-        foreach ($headers as $index => $header) {
-            $normalized = strtolower(trim((string) $header));
-            foreach ($candidates as $candidate) {
-                if ($normalized === $candidate) {
-                    return $index;
-                }
-            }
-        }
-
-        return null;
     }
 }

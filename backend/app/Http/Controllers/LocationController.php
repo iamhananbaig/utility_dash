@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Imports\RawSpreadsheetImport;
 use App\Models\Location;
+use App\Traits\HandlesSpreadsheetColumns;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Storage;
 
 class LocationController extends Controller
 {
+    use HandlesSpreadsheetColumns;
+
     public function index(): JsonResponse
     {
         $locations = Location::withCount('properties')->orderBy('code')->get();
@@ -121,19 +124,5 @@ class LocationController extends Controller
             'imported' => $imported,
             'skipped' => $skipped,
         ]);
-    }
-
-    private function findColumnIndex(array $headers, array $candidates): ?int
-    {
-        foreach ($headers as $index => $header) {
-            $normalized = strtolower(trim((string) $header));
-            foreach ($candidates as $candidate) {
-                if ($normalized === $candidate) {
-                    return $index;
-                }
-            }
-        }
-
-        return null;
     }
 }

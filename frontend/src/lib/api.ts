@@ -331,23 +331,6 @@ export const dashboard = {
   get: () => request<DashboardData>('/dashboard'),
 };
 
-// Location Trend
-export const locationTrend = {
-  get: (locationId: number, year: number) =>
-    request<{
-      location: { id: number; code: string; name: string }
-      year: number
-      months: string[]
-      totals: number[]
-      properties: Array<{
-        reference_no: string
-        name: string
-        property_type: string
-        monthly_amounts: Record<string, { amount: number; estimated: boolean } | null>
-      }>
-    }>(`/locations/${locationId}/trend?year=${year}`),
-};
-
 // Logs
 export const logs = {
   list: (params?: Record<string, string>) => {

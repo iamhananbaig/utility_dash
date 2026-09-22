@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Helpers\PdfHelper;
 use App\Models\ActivityLog;
 use App\Models\Bill;
 use Illuminate\Bus\Queueable;
@@ -37,7 +38,7 @@ class GenerateBillPdfJob implements ShouldQueue
         $content = Storage::disk('local')->get($bill->raw_html_path);
         $content = preg_replace('/<noscript>.*?<\/noscript>/is', '', $content);
 
-        $baseTag = '<base href="https://bill.pitc.com.pk/iescobill/" />';
+        $baseTag = PdfHelper::baseTag();
         if (str_contains($content, '<head>')) {
             $content = str_replace('<head>', '<head>'.$baseTag, $content);
         } elseif (str_contains($content, '<HEAD>')) {
@@ -46,49 +47,7 @@ class GenerateBillPdfJob implements ShouldQueue
             $content = $baseTag.$content;
         }
 
-        $qrInit = '<script>
-(function(){
-  var host = document.getElementById("charges_qrcode_1");
-  var textEl = document.getElementById("charges_qr_text_1");
-  if (!host || !textEl) return;
-  var text = textEl.value || textEl.textContent || "";
-  if (!text.trim()) return;
-  host.setAttribute("data-bill-qr-init", "1");
-  import("https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm").then(function(module) {
-    var QRCode = module.default;
-    host.innerHTML = "";
-    var canvas = document.createElement("canvas");
-    canvas.className = "bill-qr-canvas bill-qr-canvas--charges";
-    canvas.setAttribute("role", "img");
-    host.appendChild(canvas);
-    return QRCode.toCanvas(canvas, text, {
-      errorCorrectionLevel: "L",
-      width: 300,
-      margin: 2,
-      color: { dark: "#000000", light: "#ffffff" }
-    });
-  }).then(function() {
-    if (host.firstChild) {
-      host.firstChild.style.width = "150px";
-      host.firstChild.style.height = "150px";
-    }
-  }).catch(function(){});
-})();
-</script>';
-
-        $html = '<!DOCTYPE html><html><head>'
-            .'<meta charset="utf-8">'
-            .$baseTag
-            .'<style>'
-            .'@page { size: A4 portrait; margin: 10mm; }'
-            .'body { margin: 0; padding: 0; }'
-            .'.bill-loader, .bill-loader--hide, noscript { display: none !important; }'
-            .'</style>'
-            .'<link rel="stylesheet" href="CSS/bill-print.css?v='.time().'" />'
-            .'</head><body>'
-            .$content
-            .$qrInit
-            .'</body></html>';
+        $html = PdfHelper::wrapSingleBill($content, $baseTag);
 
         $tempDir = sys_get_temp_dir();
         $tempHtml = $tempDir.'/bill_pdf_'.$this->billId.'_'.time().'.html';

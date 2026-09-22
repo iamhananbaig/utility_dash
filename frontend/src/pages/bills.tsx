@@ -40,8 +40,6 @@ import {
 } from '@tabler/icons-react'
 import { formatDate } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
-
 function buildPrintHtml(htmlParts: string[]): string {
   const cacheBust = `?v=${Date.now()}`
   return `<!DOCTYPE html>
@@ -254,13 +252,14 @@ export function BillsPage() {
   const generatePdfForBill = async (billId: number) => {
     setGeneratingPdfId(billId)
     try {
+      const before = await billsApi.pdfStatus()
       await billsApi.generatePdf({ ids: [billId] })
-      // Poll until generated
+      // Poll until this bill's PDF is generated
       const check = async () => {
         for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 2000))
           const status = await billsApi.pdfStatus()
-          if (status.generated > 0) {
+          if (status.generated > before.generated) {
             window.open(billsApi.pdf(billId), '_blank')
             setPdfDialogOpen(false)
             setGeneratingPdfId(null)
@@ -736,6 +735,7 @@ export function BillsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unpaid">Unpaid</SelectItem>
+                  <SelectItem value="in_process">In Process</SelectItem>
                   <SelectItem value="paid">Paid</SelectItem>
                   <SelectItem value="disputed">Disputed</SelectItem>
                   <SelectItem value="cancelled">Cancelled</SelectItem>

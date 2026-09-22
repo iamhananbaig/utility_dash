@@ -3,24 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Property;
-use Carbon\Carbon;
+use App\Traits\HandlesBillMonths;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ComparativeController extends Controller
 {
-    private function parseBillMonth(string $billMonth): ?Carbon
-    {
-        try {
-            return Carbon::createFromFormat('M y', $billMonth);
-        } catch (\Throwable) {
-            try {
-                return Carbon::createFromFormat('M Y', $billMonth);
-            } catch (\Throwable) {
-                return null;
-            }
-        }
-    }
+    use HandlesBillMonths;
 
     public function analyze(Request $request): JsonResponse
     {

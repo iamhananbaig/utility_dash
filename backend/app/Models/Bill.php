@@ -86,14 +86,4 @@ class Bill extends Model
     {
         return $this->hasMany(PaymentProof::class);
     }
-
-    public function scopeUnpaid($query)
-    {
-        return $query->where('status', 'unpaid');
-    }
-
-    public function scopeForMonth($query, string $month)
-    {
-        return $query->where('bill_month', $month);
-    }
 }

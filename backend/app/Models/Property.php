@@ -39,16 +39,6 @@ class Property extends Model
         return $this->hasMany(ReferenceHistory::class);
     }
 
-    public function latestBill(): HasMany
-    {
-        return $this->bills()->latest('bill_month');
-    }
-
-    public function unpaidBills(): HasMany
-    {
-        return $this->bills()->where('status', 'unpaid');
-    }
-
     public function scopeActive($query)
     {
         return $query->where('status', 'active');

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Helpers\PdfHelper;
 use App\Models\Bill;
 use App\Models\PdfBatch;
 use Illuminate\Bus\Queueable;
@@ -60,35 +61,7 @@ class BulkPdfJob implements ShouldQueue
             $content = preg_replace('/getElementById\("([^"]+)"\)/', 'getElementById("'.$prefix.'$1")', $content);
             $content = preg_replace("/getElementById\('([^']+)'\)/", "getElementById('${prefix}$1')", $content);
 
-            $qrInit = '<script>
-(function(){
-  var host = document.getElementById("'.$prefix.'charges_qrcode_1");
-  var textEl = document.getElementById("'.$prefix.'charges_qr_text_1");
-  if (!host || !textEl) return;
-  var text = textEl.value || textEl.textContent || "";
-  if (!text.trim()) return;
-  host.setAttribute("data-bill-qr-init", "1");
-  import("https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm").then(function(module) {
-    var QRCode = module.default;
-    host.innerHTML = "";
-    var canvas = document.createElement("canvas");
-    canvas.className = "bill-qr-canvas bill-qr-canvas--charges";
-    canvas.setAttribute("role", "img");
-    host.appendChild(canvas);
-    return QRCode.toCanvas(canvas, text, {
-      errorCorrectionLevel: "L",
-      width: 300,
-      margin: 2,
-      color: { dark: "#000000", light: "#ffffff" }
-    });
-  }).then(function() {
-    if (host.firstChild) {
-      host.firstChild.style.width = "150px";
-      host.firstChild.style.height = "150px";
-    }
-  }).catch(function(){});
-})();
-</script>';
+            $qrInit = PdfHelper::qrInitScript($prefix);
 
             $htmlParts[] = '<div class="bill-page">'.$content.$qrInit.'</div>';
             $idx++;
@@ -100,20 +73,7 @@ class BulkPdfJob implements ShouldQueue
             return;
         }
 
-        $html = '<!DOCTYPE html><html><head>'
-            .'<meta charset="utf-8">'
-            .$baseTag
-            .'<style>'
-            .'@page { size: A4 portrait; margin: 10mm; }'
-            .'.bill-page { page-break-after: always; }'
-            .'.bill-page:last-child { page-break-after: auto; }'
-            .'body { margin: 0; padding: 0; }'
-            .'.bill-loader, .bill-loader--hide, noscript { display: none !important; }'
-            .'</style>'
-            .'<link rel="stylesheet" href="CSS/bill-print.css?v='.time().'" />'
-            .'</head><body>'
-            .implode("\n", $htmlParts)
-            .'</body></html>';
+        $html = PdfHelper::wrapBulkBills($htmlParts, $baseTag);
 
         $tempDir = sys_get_temp_dir();
         $tempHtml = $tempDir.'/bills_bulk_'.$this->batchId.'_'.time().'.html';
