@@ -1,27 +1,15 @@
 #!/usr/bin/env node
 
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 
-// Find Chrome binary
-function findChrome() {
-    const cacheDir = '/home/hanan/.cache/puppeteer/chrome';
-    const entries = fs.readdirSync(cacheDir).filter(e => e.startsWith('linux-'));
-    if (entries.length === 0) throw new Error('No Chrome found in puppeteer cache');
-    // Sort by version, use latest
-    entries.sort();
-    const latest = entries[entries.length - 1];
-    const chromePath = `${cacheDir}/${latest}/chrome-linux64/chrome`;
-    if (!fs.existsSync(chromePath)) throw new Error(`Chrome binary not found at ${chromePath}`);
-    return chromePath;
-}
-
 async function generatePdf(htmlContent, outputPath) {
-    const chromePath = findChrome();
-
     const browser = await puppeteer.launch({
         headless: true,
-        executablePath: chromePath,
+        executablePath:
+            process.env.PUPPETEER_EXECUTABLE_PATH ||
+            await puppeteer.executablePath(),
+
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -38,19 +26,25 @@ async function generatePdf(htmlContent, outputPath) {
             timeout: 30000,
         });
 
-        // Wait for QR canvas to render
+        // Wait for fonts
+        await page.evaluateHandle('document.fonts.ready');
+
+        // Optional: wait for QR code / canvas
         try {
-            await page.waitForSelector('canvas', { timeout: 5000 });
-        } catch {
-            // No canvas, continue
+            await page.waitForSelector('canvas', {
+                timeout: 5000,
+            });
+        } catch (error) {
+            // Canvas may not exist on every document
         }
 
-        // Additional wait for dynamic content
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Small delay to allow JS-rendered elements to finish
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
+            preferCSSPageSize: true,
             margin: {
                 top: '10mm',
                 right: '10mm',
