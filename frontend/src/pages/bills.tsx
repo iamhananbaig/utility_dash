@@ -124,13 +124,14 @@ export function BillsPage() {
   const billImportRef = useRef<HTMLInputElement>(null)
   const [payDialogOpen, setPayDialogOpen] = useState(false)
   const [payDialogBill, setPayDialogBill] = useState<Bill | null>(null)
-  const [payDialogBulk, setPayDialogBulk] = useState(false)
   const [payForm, setPayForm] = useState({
     batch_no: '',
     instruction_id: '',
     payment_date: new Date().toISOString().split('T')[0],
   })
   const [paySaving, setPaySaving] = useState(false)
+  const [paymentDetailOpen, setPaymentDetailOpen] = useState(false)
+  const [paymentDetailBill, setPaymentDetailBill] = useState<Bill | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -159,37 +160,19 @@ export function BillsPage() {
 
   const markPaid = async (id: number) => {
     setPayDialogBill(data.find(b => b.id === id) || null)
-    setPayDialogBulk(false)
-    setPayForm({ batch_no: '', instruction_id: '', payment_date: new Date().toISOString().split('T')[0] })
-    setPayDialogOpen(true)
-  }
-
-  const openBulkPayDialog = () => {
-    if (selectedIds.size === 0) return
-    setPayDialogBill(null)
-    setPayDialogBulk(true)
     setPayForm({ batch_no: '', instruction_id: '', payment_date: new Date().toISOString().split('T')[0] })
     setPayDialogOpen(true)
   }
 
   const submitPay = async () => {
-    if (!payForm.batch_no.trim()) return
+    if (!payForm.batch_no.trim() || !payDialogBill) return
     setPaySaving(true)
     try {
-      if (payDialogBulk) {
-        await billsApi.bulkMarkPaid({
-          ids: Array.from(selectedIds),
-          batch_no: payForm.batch_no,
-          instruction_id: payForm.instruction_id || undefined,
-          payment_date: payForm.payment_date || undefined,
-        })
-      } else if (payDialogBill) {
-        await billsApi.markPaidWithDetails(payDialogBill.id, {
-          batch_no: payForm.batch_no,
-          instruction_id: payForm.instruction_id || undefined,
-          payment_date: payForm.payment_date || undefined,
-        })
-      }
+      await billsApi.markPaidWithDetails(payDialogBill.id, {
+        batch_no: payForm.batch_no,
+        instruction_id: payForm.instruction_id || undefined,
+        payment_date: payForm.payment_date || undefined,
+      })
       setPayDialogOpen(false)
       setSelectedIds(new Set())
       load()
@@ -434,10 +417,6 @@ export function BillsPage() {
         <div className="flex gap-2">
           {selectedIds.size > 0 && (
             <>
-              <Button onClick={openBulkPayDialog}>
-                <IconCheck className="mr-2 h-4 w-4" />
-                Mark Paid ({selectedIds.size})
-              </Button>
               <Button onClick={handlePrintMultiple} disabled={isPrinting}>
                 <IconPrinter className="mr-2 h-4 w-4" />
                 {isPrinting ? 'Printing...' : `Print Selected (${selectedIds.size})`}
@@ -591,9 +570,16 @@ export function BillsPage() {
                     <TableCell>{formatDate(bill.due_date)}</TableCell>
                     <TableCell>
                       {bill.status === 'paid' ? (
-                        <span className="font-medium text-muted-foreground">
+                        <button
+                          onClick={() => {
+                            setPaymentDetailBill(bill)
+                            setPaymentDetailOpen(true)
+                          }}
+                          className="font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+                          title="View payment details"
+                        >
                           Rs. {bill.website_payable.toLocaleString()}
-                        </span>
+                        </button>
                       ) : (
                         <button
                           onClick={() => openEditAmount(bill)}
@@ -614,19 +600,32 @@ export function BillsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={
-                          bill.status === 'paid'
-                            ? 'default'
-                            : bill.status === 'in_process'
+                      {bill.status === 'paid' ? (
+                        <button
+                          onClick={() => {
+                            setPaymentDetailBill(bill)
+                            setPaymentDetailOpen(true)
+                          }}
+                          className="cursor-pointer"
+                          title="View payment details"
+                        >
+                          <Badge variant="default">
+                            {bill.status}
+                          </Badge>
+                        </button>
+                      ) : (
+                        <Badge
+                          variant={
+                            bill.status === 'in_process'
                               ? 'outline'
                               : bill.status === 'unpaid'
                                 ? 'destructive'
                                 : 'secondary'
-                        }
-                      >
-                        {bill.status === 'in_process' ? 'in process' : bill.status}
-                      </Badge>
+                          }
+                        >
+                          {bill.status === 'in_process' ? 'in process' : bill.status}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -874,9 +873,7 @@ export function BillsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {payDialogBulk
-                ? `Mark ${selectedIds.size} Bill(s) as Paid`
-                : `Mark as Paid — ${payDialogBill?.property?.name || ''}`}
+              Mark as Paid — {payDialogBill?.property?.name || ''}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -917,6 +914,45 @@ export function BillsPage() {
               disabled={!payForm.batch_no.trim() || !payForm.instruction_id.trim() || paySaving}
             >
               {paySaving ? 'Saving...' : 'Mark as Paid'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Details Dialog */}
+      <Dialog open={paymentDetailOpen} onOpenChange={setPaymentDetailOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payment Details</DialogTitle>
+          </DialogHeader>
+          {paymentDetailBill && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {paymentDetailBill.property?.name} — {formatBillMonth(paymentDetailBill.bill_month)}
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Voucher No</span>
+                  <p className="font-medium">{paymentDetailBill.voucher_no || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Payment Date</span>
+                  <p className="font-medium">{formatDate(paymentDetailBill.payment_date) || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Instruction ID</span>
+                  <p className="font-medium">{paymentDetailBill.instruction_id || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Batch No</span>
+                  <p className="font-medium">{paymentDetailBill.batch_no || '-'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentDetailOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
