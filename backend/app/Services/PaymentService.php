@@ -8,6 +8,7 @@ use App\Models\PaymentProof;
 use App\Models\Property;
 use App\Traits\HandlesBillMonths;
 use App\Traits\HandlesSpreadsheetColumns;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -51,8 +52,8 @@ class PaymentService
         $payableIndex = $this->findColumnIndex($headers, ['payable', 'website_payable', 'bill_amount', 'payable_amount']);
         $statusIndex = $this->findColumnIndex($headers, ['status', 'payment_status']);
 
-        if ($refIndex === null || $voucherIndex === null) {
-            return ['matched' => 0, 'not_found' => 0, 'errors' => ['Required columns not found: reference_no, voucher_no']];
+        if ($refIndex === null || $voucherIndex === null || $billMonthIndex === null) {
+            return ['matched' => 0, 'not_found' => 0, 'errors' => ['Required columns not found: reference_no, voucher_no, bill_month']];
         }
 
         DB::transaction(function () use ($rows, $refIndex, $billMonthIndex, $amountIndex, $dateIndex, $instructionIndex, $batchIndex, $voucherIndex, $payableIndex, $statusIndex, $path, $file, &$matched, &$notFound, &$errors) {
@@ -76,20 +77,18 @@ class PaymentService
                     continue;
                 }
 
-                // Find bill by property + bill_month if provided
-                $bill = null;
-                $billMonth = $billMonthIndex !== null ? strtoupper(trim((string) ($row[$billMonthIndex] ?? ''))) : null;
+                // Find bill by property + bill_month (required)
+                $billMonth = strtoupper(trim((string) ($row[$billMonthIndex] ?? '')));
+                $parsed = $this->parseBillMonth($billMonth);
+                if (! $parsed) {
+                    $notFound++;
 
-                $billQuery = Bill::where('property_id', $property->id);
-
-                if ($billMonth !== '' && $billMonth !== null) {
-                    $parsed = $this->parseBillMonth($billMonth);
-                    if ($parsed) {
-                        $billQuery->where('bill_month', strtoupper($parsed->format('M y')));
-                    }
+                    continue;
                 }
 
-                $bill = $billQuery->first();
+                $bill = Bill::where('property_id', $property->id)
+                    ->where('bill_month', $parsed->format('M y'))
+                    ->first();
 
                 if (! $bill) {
                     $notFound++;

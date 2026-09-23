@@ -18,7 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { IconArrowLeft } from '@tabler/icons-react'
-import { formatDate, formatDateTime } from '@/lib/utils'
+import { formatDate, formatBillMonth, formatDateTime } from '@/lib/utils'
 
 export function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -122,7 +122,7 @@ export function PropertyDetailPage() {
                 <TableBody>
                   {bills.map((bill) => (
                     <TableRow key={bill.id}>
-                      <TableCell className="font-medium">{formatDate(bill.bill_month)}</TableCell>
+                      <TableCell className="font-medium">{formatBillMonth(bill.bill_month)}</TableCell>
                       <TableCell>{formatDate(bill.due_date)}</TableCell>
                       <TableCell>Rs. {bill.arrears_amount.toLocaleString()}</TableCell>
                       <TableCell>Rs. {bill.energy_charges.toLocaleString()}</TableCell>

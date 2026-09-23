@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { dashboard, type DashboardData } from '@/lib/api'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatBillMonth } from '@/lib/utils'
 import {
   IconAlertTriangle,
   IconClock,
@@ -201,7 +201,7 @@ export function DashboardPage() {
                       {bill.property?.name || 'Unknown'}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {bill.bill_month} &middot; {bill.property?.reference_no}
+                      {formatBillMonth(bill.bill_month)} &middot; {bill.property?.reference_no}
                       {bill.due_date && <> &middot; Due: {formatDate(bill.due_date)}</>}
                     </p>
                   </div>

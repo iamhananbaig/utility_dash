@@ -11,7 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { IconUpload } from '@tabler/icons-react'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatBillMonth } from '@/lib/utils'
 
 export function PaymentsPage() {
   const [data, setData] = useState<PaymentProof[]>([])
@@ -79,7 +79,7 @@ export function PaymentsPage() {
         <CardContent className="space-y-2">
           <p className="text-sm text-muted-foreground">
             Upload an Excel file with columns:{' '}
-            <strong>reference_no</strong>, <strong>voucher_no</strong> (required),{' '}
+            <strong>reference_no</strong>, <strong>bill_month</strong>, <strong>voucher_no</strong> (required),{' '}
             <strong>instruction_id</strong>, <strong>batch_no</strong>, <strong>date</strong> (optional).
             Matching bills will be marked as <strong>in process</strong>.
           </p>
@@ -117,7 +117,7 @@ export function PaymentsPage() {
                       {proof.bill?.property?.reference_no}
                     </p>
                   </TableCell>
-                  <TableCell>{formatDate(proof.bill?.bill_month)}</TableCell>
+                  <TableCell>{formatBillMonth(proof.bill?.bill_month)}</TableCell>
                   <TableCell>{proof.original_name}</TableCell>
                   <TableCell className="text-sm">{proof.notes || '-'}</TableCell>
                   <TableCell>

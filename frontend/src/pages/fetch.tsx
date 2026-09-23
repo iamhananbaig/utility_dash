@@ -20,7 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { IconCloudDownload, IconDownload, IconFile } from '@tabler/icons-react'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatBillMonth } from '@/lib/utils'
 
 export function FetchPage() {
   const [locationsList, setLocationsList] = useState<Location[]>([])
@@ -256,7 +256,7 @@ export function FetchPage() {
                       <TableCell className="text-xs">
                         {bill.property?.location?.code || '-'}
                       </TableCell>
-                      <TableCell>{formatDate(bill.bill_month)}</TableCell>
+                      <TableCell>{formatBillMonth(bill.bill_month)}</TableCell>
                       <TableCell>{formatDate(bill.due_date)}</TableCell>
                       <TableCell className="font-mono text-sm">
                         {bill.property?.reference_no || '-'}

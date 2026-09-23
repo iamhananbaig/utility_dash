@@ -38,7 +38,7 @@ import {
   IconFile,
   IconUpload,
 } from '@tabler/icons-react'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatBillMonth } from '@/lib/utils'
 
 function buildPrintHtml(htmlParts: string[]): string {
   const cacheBust = `?v=${Date.now()}`
@@ -587,7 +587,7 @@ export function BillsPage() {
                     <TableCell className="font-mono text-xs">
                       {bill.property?.reference_no || '-'}
                     </TableCell>
-                    <TableCell>{formatDate(bill.bill_month)}</TableCell>
+                    <TableCell>{formatBillMonth(bill.bill_month)}</TableCell>
                     <TableCell>{formatDate(bill.due_date)}</TableCell>
                     <TableCell>
                       {bill.status === 'paid' ? (
@@ -813,7 +813,7 @@ export function BillsPage() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {editAmountBill?.property?.name} — {formatDate(editAmountBill?.bill_month)}
+              {editAmountBill?.property?.name} — {formatBillMonth(editAmountBill?.bill_month)}
             </p>
             <div>
               <label className="text-sm font-medium">Website Payable (Rs.)</label>
@@ -849,7 +849,7 @@ export function BillsPage() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              PDF for <strong>{pdfDialogBill?.property?.name}</strong> ({formatDate(pdfDialogBill?.bill_month)}) has not been generated yet.
+              PDF for <strong>{pdfDialogBill?.property?.name}</strong> ({formatBillMonth(pdfDialogBill?.bill_month)}) has not been generated yet.
             </p>
             <p className="text-sm text-muted-foreground">
               Click "Generate PDF" to create it now. This may take a few seconds.
