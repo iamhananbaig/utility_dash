@@ -42,11 +42,21 @@ Multi-service app for managing utility bills (Pakistani providers). Four indepen
 - Backend queues jobs to Redis: `FetchBillJob` (default queue), `GenerateBillPdfJob` (pdf queue).
 - `pdf-service/pdf-generator.js` is a standalone CLI tool called by the backend's pdf jobs. Requires Chrome in `~/.cache/puppeteer/`.
 - `python-api/` handles bill scraping for providers (iesco, vcard). Backend calls it as an HTTP API.
-- Backend uses SQLite by default (see `backend/.env.example`). Tests use in-memory SQLite.
-- Frontend uses `@shadcn/react` components and `@tanstack/react-table`.
+- Backend uses SQLite by default (see `backend/.env.example`). Tests use in-memory SQLite via `phpunit.xml` (RefreshDatabase is commented out in `tests/Pest.php`).
+- Frontend uses `shadcn` (v4) components and `@tanstack/react-table`.
+- Laravel Boost MCP server is configured in `backend/opencode.json` for DB queries, schema inspection, etc.
 
 ## Before Finalizing Changes
 
 - PHP files: run `vendor/bin/pint --dirty --format agent` in `backend/`
 - Frontend: run `npm run lint && npm run typecheck` in `frontend/`
 - If Vite manifest error after backend changes: `npm run build` in `backend/`
+
+## Deployment
+
+See `DEPLOYMENT.md` for full dev and prod setup guides. Key facts:
+
+- **Prod target**: `192.168.1.126:8002` (nginx + php-fpm + uv + systemd)
+- **Dev**: `composer run dev` (backend :8000) + `npm run dev` (frontend :5173) + `uv run uvicorn` (python-api :8001)
+- **Prod rebuild**: `VITE_API_URL=http://192.168.1.126:8002/api npm run build` in `frontend/`
+- Services: `utility-backend`, `utility-python-api`, `utility-workers`, `nginx`
