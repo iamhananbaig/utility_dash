@@ -1,16 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router'
 import {
   properties as propertiesApi,
   locations as locationsApi,
-  fetchApi,
   type Property,
 } from '@/lib/api'
 import { useQuery } from '@/hooks/use-query'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { notify } from '@/lib/notify'
 import { confirmDialog } from '@/lib/confirm'
-import { isAbortError, waitForBatch } from '@/lib/poll'
+import { CaptchaFetchDialog } from '@/components/captcha-fetch-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -52,7 +51,7 @@ export function PropertiesPage() {
   const [filterLocation, setFilterLocation] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterProvider, setFilterProvider] = useState('')
-  const [fetchingId, setFetchingId] = useState<number | null>(null)
+  const [captchaProperty, setCaptchaProperty] = useState<Property | null>(null)
   const [form, setForm] = useState<{
     name: string
     reference_no: string
@@ -88,14 +87,6 @@ export function PropertiesPage() {
     propertiesApi.list(params),
   )
   const { data: locationsList = [] } = useQuery('locations', () => locationsApi.list())
-
-  // Abort in-flight fetch polling when leaving the page.
-  const abortRef = useRef(new AbortController())
-  useEffect(() => {
-    const controller = new AbortController()
-    abortRef.current = controller
-    return () => controller.abort()
-  }, [])
 
   const openCreate = () => {
     setEditing(null)
@@ -196,23 +187,6 @@ export function PropertiesPage() {
       notify.error(err, 'Reference update failed')
     } finally {
       if (refUpdateInputRef.current) refUpdateInputRef.current.value = ''
-    }
-  }
-
-  const handleFetchSingle = async (prop: Property) => {
-    setFetchingId(prop.id)
-    try {
-      const response = await fetchApi.single(prop.reference_no, prop.provider)
-      const batch = await waitForBatch(response.batch_id, { signal: abortRef.current.signal })
-      if (batch.status === 'failed' || batch.fail_count > 0) {
-        notify.warning('Fetch failed', `Could not fetch the bill for ${prop.reference_no}. See Logs for details.`)
-      } else {
-        notify.success('Bill fetched', `Bill saved for ${prop.reference_no}`)
-      }
-    } catch (err) {
-      if (!isAbortError(err)) notify.error(err, 'Fetch failed')
-    } finally {
-      if (!abortRef.current.signal.aborted) setFetchingId(null)
     }
   }
 
@@ -354,11 +328,11 @@ export function PropertiesPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={fetchingId === prop.id}
-                        onClick={() => handleFetchSingle(prop)}
-                        title="Fetch bill"
+                        disabled={prop.provider !== 'iesco' || prop.status !== 'active'}
+                        onClick={() => setCaptchaProperty(prop)}
+                        title={prop.provider === 'iesco' ? 'Fetch bill (CAPTCHA)' : 'Only IESCO bills can be fetched'}
                       >
-                        <IconCloudDownload className={`h-4 w-4 ${fetchingId === prop.id ? 'animate-spin' : ''}`} />
+                        <IconCloudDownload className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(prop)}>
                         <IconPencil className="h-4 w-4" />
@@ -501,6 +475,19 @@ export function PropertiesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {captchaProperty && (
+        <CaptchaFetchDialog
+          key={captchaProperty.id}
+          properties={[captchaProperty]}
+          open
+          onOpenChange={(open) => {
+            if (!open) setCaptchaProperty(null)
+          }}
+          onFinished={(results) => {
+            if (results.some((r) => r.bill)) reload()
+          }}
+        />
+      )}
     </div>
   )
 }

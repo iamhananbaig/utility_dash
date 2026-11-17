@@ -164,13 +164,33 @@ def _extract_qr_text(soup: BeautifulSoup) -> str:
     return value
 
 
-def fetch_bill(
-    reference_no: str, client: httpx.Client
-) -> tuple[str, BeautifulSoup]:
-    form_response = client.get(SEARCH_URL)
-    form_response.raise_for_status()
+class CaptchaRequiredError(RuntimeError):
+    """IESCO answered with its search form and a CAPTCHA instead of a bill."""
 
-    payload = _get_hidden_fields(form_response.text)
+
+class CaptchaInvalidError(RuntimeError):
+    """IESCO rejected the CAPTCHA answer that was submitted."""
+
+
+CAPTCHA_REQUIRED_MESSAGE = (
+    "IESCO requires a CAPTCHA for bill lookups. Use 'Fetch with CAPTCHA' in the dashboard."
+)
+
+
+def _has_bill(soup: BeautifulSoup) -> bool:
+    return soup.select_one(
+        '[id^="charges_qr_text_"], textarea[id*="charges_qr"], input[id*="charges_qr"]'
+    ) is not None
+
+
+def _is_captcha_page(soup: BeautifulSoup) -> bool:
+    return soup.select_one('input[name="captchaInput"], #captchaImage') is not None
+
+
+def build_search_payload(
+    hidden_fields: dict[str, str], reference_no: str, captcha_answer: str | None = None
+) -> dict[str, str]:
+    payload = dict(hidden_fields)
     payload.update(
         {
             "__EVENTTARGET": "",
@@ -182,13 +202,43 @@ def fetch_bill(
             "btnSearch": "Search",
         }
     )
+    if captcha_answer is not None:
+        payload["captchaInput"] = captcha_answer
+    return payload
 
+
+def submit_search(
+    client: httpx.Client,
+    payload: dict[str, str],
+    captcha_submitted: bool = False,
+) -> tuple[str, BeautifulSoup]:
+    """POST the search form and return (qr_text, soup) for the bill page.
+
+    Raises CaptchaInvalidError / CaptchaRequiredError when IESCO answers with
+    the search form again instead of a bill.
+    """
     bill_response = client.post(SEARCH_URL, data=payload)
     bill_response.raise_for_status()
 
     soup = BeautifulSoup(bill_response.text, "lxml")
+    if not _has_bill(soup) and _is_captcha_page(soup):
+        if captcha_submitted and "invalid captcha" in soup.get_text(" ").lower():
+            raise CaptchaInvalidError("The CAPTCHA code was not accepted.")
+        if not captcha_submitted:
+            raise CaptchaRequiredError(CAPTCHA_REQUIRED_MESSAGE)
+
     qr_text = _extract_qr_text(soup)
     return qr_text, soup
+
+
+def fetch_bill(
+    reference_no: str, client: httpx.Client
+) -> tuple[str, BeautifulSoup]:
+    form_response = client.get(SEARCH_URL)
+    form_response.raise_for_status()
+
+    payload = build_search_payload(_get_hidden_fields(form_response.text), reference_no)
+    return submit_search(client, payload)
 
 
 # ============================================================
@@ -686,29 +736,7 @@ def process_reference(reference_no: str) -> dict[str, Any]:
     try:
         client = get_client()
         qr_text, soup = fetch_bill(reference_no, client)
-        parsed_bill = parse_bill(qr_text)
-
-        row.update(parsed_bill)
-        row.update(verify_returned_reference(reference_no, parsed_bill, soup))
-
-        if row.get("REFERENCE_VERIFICATION") == "MISMATCH":
-            raise RuntimeError(str(row.get("REFERENCE_ERROR", "")))
-
-        row.update(extract_bill_dates(soup))
-        row.update(extract_arrears(soup))
-        row.update(extract_bill_history_summary(soup))
-        row.update(extract_website_payable(parsed_data=parsed_bill, soup=soup))
-
-        row["CALCULATED_PAYABLE_WITHIN_DUE_DATE"] = _calculate_payable_within_due_date(
-            row
-        )
-        _compare_payable_amounts(row)
-        row.update(extract_surcharge(soup))
-
-        row["FETCH_STATUS"] = "SUCCESS"
-        row["ERROR_TYPE"] = ""
-        row["ERROR"] = ""
-        row["_RAW_HTML"] = str(soup)
+        row.update(extract_bill_row(reference_no, qr_text, soup))
 
     except Exception as error:
         logger.exception("Failed to fetch bill %s", reference_no)
@@ -718,6 +746,39 @@ def process_reference(reference_no: str) -> dict[str, Any]:
 
     if REQUEST_DELAY > 0:
         time.sleep(REQUEST_DELAY)
+
+    return row
+
+
+def extract_bill_row(reference_no: str, qr_text: str, soup: BeautifulSoup) -> dict[str, Any]:
+    """Parse a fetched bill page into the result row (FETCH_STATUS=SUCCESS).
+
+    Raises when the page belongs to another reference or cannot be parsed.
+    """
+    row: dict[str, Any] = {}
+    parsed_bill = parse_bill(qr_text)
+
+    row.update(parsed_bill)
+    row.update(verify_returned_reference(reference_no, parsed_bill, soup))
+
+    if row.get("REFERENCE_VERIFICATION") == "MISMATCH":
+        raise RuntimeError(str(row.get("REFERENCE_ERROR", "")))
+
+    row.update(extract_bill_dates(soup))
+    row.update(extract_arrears(soup))
+    row.update(extract_bill_history_summary(soup))
+    row.update(extract_website_payable(parsed_data=parsed_bill, soup=soup))
+
+    row["CALCULATED_PAYABLE_WITHIN_DUE_DATE"] = _calculate_payable_within_due_date(
+        row
+    )
+    _compare_payable_amounts(row)
+    row.update(extract_surcharge(soup))
+
+    row["FETCH_STATUS"] = "SUCCESS"
+    row["ERROR_TYPE"] = ""
+    row["ERROR"] = ""
+    row["_RAW_HTML"] = str(soup)
 
     return row
 

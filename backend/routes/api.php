@@ -24,6 +24,8 @@ Route::apiResource('properties', PropertyController::class);
 
 Route::post('fetch', [FetchController::class, 'store']);
 Route::post('fetch/single', [FetchController::class, 'storeSingle']);
+Route::post('fetch/captcha/start', [FetchController::class, 'captchaStart']);
+Route::post('fetch/captcha/submit', [FetchController::class, 'captchaSubmit']);
 Route::get('fetch/latest', [FetchController::class, 'latest']);
 Route::get('fetch/{id}/status', [FetchController::class, 'status']);
 Route::get('fetch/{id}/results', [FetchController::class, 'results']);

@@ -136,6 +136,18 @@ export interface FetchBatch {
   progress: number;
 }
 
+export interface CaptchaChallenge {
+  property_id: number;
+  reference_no: string;
+  challenge_id: string;
+  /** data: URL of IESCO's CAPTCHA image */
+  image: string;
+}
+
+export type CaptchaSubmitResult =
+  | { status: 'success' | 'exists'; bill: Bill }
+  | { status: 'captcha_invalid' | 'expired' | 'failed'; message: string };
+
 export interface ReferenceHistory {
   id: number;
   property_id: number;
@@ -319,6 +331,16 @@ export const fetchApi = {
       body: JSON.stringify({ reference_no: referenceNo, provider: provider || 'iesco' }),
     }),
   latest: () => request<FetchBatch | null>('/fetch/latest'),
+  captchaStart: (propertyId: number) =>
+    request<CaptchaChallenge>('/fetch/captcha/start', {
+      method: 'POST',
+      body: JSON.stringify({ property_id: propertyId }),
+    }),
+  captchaSubmit: (propertyId: number, challengeId: string, answer: string) =>
+    request<CaptchaSubmitResult>('/fetch/captcha/submit', {
+      method: 'POST',
+      body: JSON.stringify({ property_id: propertyId, challenge_id: challengeId, answer }),
+    }),
   status: (id: number) => request<FetchBatch>(`/fetch/${id}/status`),
   results: (id: number) => request<Bill[]>(`/fetch/${id}/results`),
   download: (id: number) => {

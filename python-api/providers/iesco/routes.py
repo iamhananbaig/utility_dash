@@ -7,12 +7,21 @@ from typing import Annotated, Any
 
 import pandas as pd
 from asyncer import asyncify
-from fastapi import APIRouter, BackgroundTasks, File, Path as PathParam, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Path as PathParam, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .config import REFERENCE_COLUMN, MAX_REFERENCES
+from .captcha import ChallengeNotFoundError, start_challenge, submit_challenge
 from .fetcher import fetch_unique_references, normalize_reference
-from .schemas import FetchRequest, FetchResponse, TaskResult, TaskStatus
+from .schemas import (
+    CaptchaChallenge,
+    CaptchaStartRequest,
+    CaptchaSubmitRequest,
+    FetchRequest,
+    FetchResponse,
+    TaskResult,
+    TaskStatus,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -135,6 +144,31 @@ async def start_fetch_excel(
     task_id, total = _create_task(refs)
     background_tasks.add_task(_run_fetch_task, task_id, refs)
     return FetchResponse(task_id=task_id, total=total)
+
+
+@router.post("/captcha/start", response_model=CaptchaChallenge)
+async def captcha_start(body: CaptchaStartRequest) -> CaptchaChallenge:
+    """Open an IESCO session and return its CAPTCHA image for a person to read."""
+    reference_no = normalize_reference(body.reference_no)
+    if len(reference_no) != 14 or not reference_no.isdigit():
+        raise HTTPException(status_code=422, detail="Reference number must be 14 digits.")
+    try:
+        challenge = await asyncify(start_challenge)(reference_no)
+    except Exception as error:
+        logger.exception("Could not start CAPTCHA challenge for %s", reference_no)
+        raise HTTPException(status_code=502, detail=f"Could not reach IESCO: {error}") from error
+    return CaptchaChallenge(**challenge)
+
+
+@router.post("/captcha/submit")
+async def captcha_submit(body: CaptchaSubmitRequest) -> dict[str, Any]:
+    """Submit a person's CAPTCHA answer and return the fetched bill."""
+    if not body.answer.strip():
+        raise HTTPException(status_code=422, detail="Enter the CAPTCHA code.")
+    try:
+        return await asyncify(submit_challenge)(body.challenge_id, body.answer)
+    except ChallengeNotFoundError as error:
+        raise HTTPException(status_code=410, detail=str(error)) from error
 
 
 @router.get("/status/{task_id}", response_model=TaskStatus)

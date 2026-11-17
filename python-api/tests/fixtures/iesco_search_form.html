@@ -1,0 +1,282 @@
+
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="keywords" content="iescobill, mepcobill, pescobill, hescobill, sepcobill, qescobill, gepcobill, fescobill, tescobill" />
+    <meta name="description" content="Consumer electricity bills" />
+
+    <title>IESCO Web Bill</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css?family=Nunito" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.8.2/css/all.css" rel="stylesheet" type="text/css">
+    <!-- <script async defer src="https://buttons.github.io/buttons.js"></script> -->
+
+    <style type="text/css">
+        .nav-bdr {
+            border-bottom: 2px solid brown;
+        }
+        .bg-brown {
+            background-color: brown;
+        }
+        .captcha-img {
+            max-width: 200px;
+            height: auto;
+        }
+    </style>
+
+
+
+    
+
+    <link rel="stylesheet" href="/styles/extra_pages.css">
+</head>
+<body>
+    
+    <header class="section-header fixed-top bg-white">
+        <!-- ============= COMPONENT ============== -->
+        <nav class="navbar navbar-expand-lg navbar-dark nav-bdr">
+
+            <div class="container-fluid">
+                <div id="logo" class="pad5 wh80">
+                    <img class="maxWH100 " src="/images/companies/iesco/logo.png" alt="IESCO Logo">
+                </div>
+
+                <div id="title">
+                    <a class="navbar-brand color-brown ml-1r" href="#">
+                        <div class="fs-title">
+                            IESCO Web Bill
+                        </div>
+                        <sub class="sub">
+                            Powered by PITC
+                        </sub>
+                    </a>
+                </div>
+
+                <button class="navbar-toggler bg-brown" type="button" data-bs-toggle="collapse" data-bs-target="#main_nav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <div class="collapse navbar-collapse" id="main_nav">
+
+                    <ul class="navbar-nav ms-auto">
+                        <li class="nav-item">
+                            <a class="nav-link color-brown onhover-burlywood" href="/index"><b>Home </b></a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link color-brown onhover-burlywood" href="https://www.iesco.com.pk/">
+                                <b>Visit Us</b>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link color-brown onhover-burlywood" href="http://www.pitc.com.pk/">
+                                <b>Service Provider</b>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                <!-- navbar-collapse.// -->
+            </div>
+            <!-- container-fluid.// -->
+
+        </nav>
+        <!-- ============= COMPONENT END// ============== -->
+    </header>
+    
+
+    <section class="section-content pad-t-6rem mb-5">
+        <h4 class="text-center py-4 color-saddle-brown">IESCO BILL </h4>
+        <div class="container" style="max-width: 600px">
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-header">
+                            Search Your Electricity Bill
+                        </div>
+                        <div class="card-body">
+                            <form method="post" action="./iescobill" onsubmit="javascript:return WebForm_OnSubmit();" id="SubmitForm">
+<div class="aspNetHidden">
+<input type="hidden" name="__LASTFOCUS" id="__LASTFOCUS" value="" />
+<input type="hidden" name="__EVENTTARGET" id="__EVENTTARGET" value="" />
+<input type="hidden" name="__EVENTARGUMENT" id="__EVENTARGUMENT" value="" />
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="Y/6ZOF4znSIe+KbCmX0J1mNpZX+rudvW6pw/0BhJuEce4eT4BnJpoRptYmOKa3VQiDwldMyk8CTcGshfXrF7JXwnWavKUAtUXCNSsJFFgc7ZXFf+9e841lPTJR7t35xyj6O7LVbikcUXcwrxRvgQltw+YBp7oEja+eICmia2VbQBOTmzHHzIxk6Ms/mUaDNuPOwDhWzKMdwzyB5/0/GF9+ZjucDYVhzU1i99Mz3zWihy1uEsadO9zFqmRiva+4S1QGTqcqiIRnLXHLSosrxF1B2S6YC+KzRegaGYnfTDy6GkZCNKaeYElPJXM5Tj5r9/vabD7hMexwp0AoYtY84o0z2J5W06Pp1qv3n75NHDbxD61tGjfSu/ZtT/79c6I6gtzh4pvTr3Vr2kU65MZ3X3UVJ8xagUfPmRjOWDYhHnD4cxA+dSyufPMZJcXPefgSdFqQGnU9oDbwVHwGgKuB4TSh5hyirIfkHlt3bSuLi8UgDmGEb21NmiyFEBPqLX2PqudJV7DAcuVHsMJ5Z2lq5e3yeZrLiUTOy8MjqspkUumvYeB80QMVYPDhY58okYdXOpam8/scAO/Lw20aVSvpqL4W0xkv88NZntiVKbfx0Xjj/QGcUUPnnfIoYwNXaDpke9vmOl25kNWWwaO/nCIq/2NF2IBEeJyTqL3W1Cz93mJcgSDNXgXOnxO/cLURmilVXxoQyqpNvb6BeK3Lne1IT9A0r+ZiotE/b3kWVmoR7SQN/5VH3Vvh1vy+JAj1BceiIm" />
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+var theForm = document.forms['SubmitForm'];
+if (!theForm) {
+    theForm = document.SubmitForm;
+}
+function __doPostBack(eventTarget, eventArgument) {
+    if (!theForm.onsubmit || (theForm.onsubmit() != false)) {
+        theForm.__EVENTTARGET.value = eventTarget;
+        theForm.__EVENTARGUMENT.value = eventArgument;
+        theForm.submit();
+    }
+}
+//]]>
+</script>
+
+
+<script src="/WebResource.axd?d=pynGkmcFUV13He1Qd6_TZJEnElwPVAfcIpJXov0QVPbU6dbtRhkHwepN6P4-FBoPSeqfBKgAUVdS7j1At6NsQg2&amp;t=639191013332169432" type="text/javascript"></script>
+
+
+<script src="/WebResource.axd?d=x2nkrMJGXkMELz33nwnakNyu1ahCtzp87exF5kSwPKgZ-CxKY7mDa6bHanmh_PI09vM5bXm90FbAiapn-uI7whwQzp179kSep7mi-v8md601&amp;t=639191013332169432" type="text/javascript"></script>
+<script src="/WebResource.axd?d=JoBkLzP19aTuxbWOhHobYhlSIvwyLjCxw2e-HNk7uNyrYtRa85HY-R7pbEHlUaSvYXIbr1h4NLVC3iN0V4Jgdw2&amp;t=639191013332169432" type="text/javascript"></script>
+<script type="text/javascript">
+//<![CDATA[
+function WebForm_OnSubmit() {
+if (typeof(ValidatorOnSubmit) == "function" && ValidatorOnSubmit() == false) return false;
+return true;
+}
+//]]>
+</script>
+
+<div class="aspNetHidden">
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="2CDA38AB" />
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="fMn9uYOiU8/FoJa9ZIadTZkmvjmKxEnV22JIDV5n12kqjLGMZOqGbttWar+05Mehzt7E4QxBSsq9nfIkAuOlVtGpT76DP/PUwnFeL5kXv718IKOTwmqbuaHAw14h0kyHrtAL2uAr4wvF+i9mI4zr3PR0A4uy3lqaNlVoGwfKFLmpkayUrcjKYb1DFMdzO7dwYaVNlPvHPhKcHyp14KYS+wv7/Lj25/YeTPsFnECyePr6UKrCG0ZzSEqKWWcZ6qnLDobx5bOwYXglTrfIx+YGxw==" />
+</div>
+                                <div class="input-group mb-3">
+                                    <table id="rbSearchByList">
+	<tr>
+		<td><input id="rbSearchByList_0" type="radio" name="rbSearchByList" value="refno" checked="checked" /><label for="rbSearchByList_0"> Reference No</label></td>
+	</tr><tr>
+		<td><input id="rbSearchByList_1" type="radio" name="rbSearchByList" value="appno" onclick="javascript:setTimeout(&#39;__doPostBack(\&#39;rbSearchByList$1\&#39;,\&#39;\&#39;)&#39;, 0)" /><label for="rbSearchByList_1"> Customer ID</label></td>
+	</tr>
+</table>
+                                    <input name="searchTextBox" type="text" maxlength="14" size="16" id="searchTextBox" class="form-control" placeholder="Enter 14-digit valid reference no" style="font-size: 18px; padding: 5px; margin-right: 15px; margin-left: 15px;" />
+                                    <span id="RequiredFieldValidator1" title="This field is required" style="color:Red;display:none;">*</span>
+                                    <select name="ruCodeTextBox" id="ruCodeTextBox" style="padding-left:8px; background-color: #fff; border: 1px solid #ced4da; max-width: 65px">
+	<option value="">U</option>
+	<option value="R">R</option>
+
+</select>  
+                                    
+                                    <input name="__RequestVerificationToken" type="hidden" value="uE0AY96yJtRKSaNb9XjgL3FBkmkorbl1JWp2mP61SJ3y0k02yB0f-iX0bVeyl8vPL9KY24_QCeHsrjBA_89I2gZTBz13tqwy5a4hr-ITFBU1" />
+
+                                </div>
+                                <span id="RegularExpressionValidator2" class="mb-3" style="color:Red;display:none;">Given Ref/App No is invalid</span>
+                                <div id="ua" class="mb-3 color-red"></div>
+
+                                
+
+
+
+
+
+
+
+
+
+                                <div class="mb-3">
+                                    <label for="captchaInput" class="form-label">Enter the code from the image</label>
+                                    <div class="input-group">
+                                        <img id="captchaImage" src="/CaptchaImageHandler.ashx?t=94f881fd2f7f445983b763ceb55386a2" alt="CAPTCHA Image" class="captcha-img" width="200" height="60" />
+                                        <button type="button" id="refreshCaptcha" class="btn btn-outline-secondary" aria-label="Refresh captcha">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                    </div>
+                                    <input name="captchaInput" type="text" maxlength="6" id="captchaInput" class="form-control mt-2" placeholder="Enter CAPTCHA code" autocomplete="off" spellcheck="false" autocapitalize="off" />
+                                    <span id="captchaValidator" title="Please enter the CAPTCHA code" style="color:Red;display:none;">CAPTCHA is required</span>
+                                </div>
+                                <script type="text/javascript">
+                                    (function () {
+                                        var refreshButton = document.getElementById('refreshCaptcha');
+                                        var captchaImage = document.getElementById('captchaImage');
+                                        var captchaInput = document.getElementById('captchaInput');
+                                        if (!refreshButton || !captchaImage) {
+                                            return;
+                                        }
+
+                                        refreshButton.addEventListener('click', function () {
+                                            if (captchaInput) {
+                                                captchaInput.value = '';
+                                            }
+                                            captchaImage.src = '/CaptchaImageHandler.ashx?t=' + new Date().getTime();
+                                        });
+                                    })();
+                                </script>
+
+                                <input type="submit" name="btnSearch" value="Search" onclick="javascript:WebForm_DoPostBackWithOptions(new WebForm_PostBackOptions(&quot;btnSearch&quot;, &quot;&quot;, true, &quot;&quot;, &quot;&quot;, false, false))" id="btnSearch" class="auto-center btn btn-secondary" style="font-size: 14px; padding: 5px; width: 75px;" />
+                            
+<script type="text/javascript">
+//<![CDATA[
+var Page_Validators =  new Array(document.getElementById("RequiredFieldValidator1"), document.getElementById("RegularExpressionValidator2"), document.getElementById("captchaValidator"));
+//]]>
+</script>
+
+<script type="text/javascript">
+//<![CDATA[
+var RequiredFieldValidator1 = document.all ? document.all["RequiredFieldValidator1"] : document.getElementById("RequiredFieldValidator1");
+RequiredFieldValidator1.controltovalidate = "searchTextBox";
+RequiredFieldValidator1.focusOnError = "t";
+RequiredFieldValidator1.errormessage = "*";
+RequiredFieldValidator1.display = "Dynamic";
+RequiredFieldValidator1.evaluationfunction = "RequiredFieldValidatorEvaluateIsValid";
+RequiredFieldValidator1.initialvalue = "";
+var RegularExpressionValidator2 = document.all ? document.all["RegularExpressionValidator2"] : document.getElementById("RegularExpressionValidator2");
+RegularExpressionValidator2.controltovalidate = "searchTextBox";
+RegularExpressionValidator2.errormessage = "Given Ref/App No is invalid";
+RegularExpressionValidator2.display = "Dynamic";
+RegularExpressionValidator2.evaluationfunction = "RegularExpressionValidatorEvaluateIsValid";
+RegularExpressionValidator2.validationexpression = "^\\d{10,14}$";
+var captchaValidator = document.all ? document.all["captchaValidator"] : document.getElementById("captchaValidator");
+captchaValidator.controltovalidate = "captchaInput";
+captchaValidator.focusOnError = "t";
+captchaValidator.errormessage = "CAPTCHA is required";
+captchaValidator.display = "Dynamic";
+captchaValidator.evaluationfunction = "RequiredFieldValidatorEvaluateIsValid";
+captchaValidator.initialvalue = "";
+//]]>
+</script>
+
+
+<script type="text/javascript">
+//<![CDATA[
+
+var Page_ValidationActive = false;
+if (typeof(ValidatorOnLoad) == "function") {
+    ValidatorOnLoad();
+}
+
+function ValidatorOnSubmit() {
+    if (Page_ValidationActive) {
+        return ValidatorCommonOnSubmit();
+    }
+    else {
+        return true;
+    }
+}
+        WebForm_AutoFocus('searchTextBox');//]]>
+</script>
+</form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- footer start -->
+    <footer class="bg-dark-brown text-light py-3">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center color-light-grey">
+                    Copyright © 2021 Power Information Technology Company - PITC, All Rights Reserved.
+                </div>
+            </div>
+        </div>
+        <!--end of container-->
+    </footer>
+    <!-- footer end -->
+    <script type="text/javascript" src="/js/disable_inspect_element.js"></script>
+</body>
+</html>

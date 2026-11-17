@@ -38,7 +38,7 @@ it('saves fetched bills and completes the batch', function () {
         ]),
     ]);
 
-    (new FetchBillJob($batch->id, [$property->reference_no]))->handle();
+    app()->call([new FetchBillJob($batch->id, [$property->reference_no]), 'handle']);
 
     expect($batch->fresh())
         ->status->toBe('completed')
@@ -59,7 +59,7 @@ it('throws when the python task disappears mid-fetch', function () {
         'python.test/iesco/status/task-1' => Http::response(['status' => 'not_found']),
     ]);
 
-    (new FetchBillJob($batch->id, [$property->reference_no]))->handle();
+    app()->call([new FetchBillJob($batch->id, [$property->reference_no]), 'handle']);
 })->throws(RuntimeException::class, 'was lost');
 
 it('gives up after repeated status errors instead of polling forever', function () {
@@ -71,7 +71,7 @@ it('gives up after repeated status errors instead of polling forever', function 
         'python.test/iesco/status/task-1' => Http::response('down', 503),
     ]);
 
-    (new FetchBillJob($batch->id, [$property->reference_no]))->handle();
+    app()->call([new FetchBillJob($batch->id, [$property->reference_no]), 'handle']);
 })->throws(RuntimeException::class, 'stopped responding');
 
 it('throws when the results endpoint reports an error', function () {
@@ -84,7 +84,7 @@ it('throws when the results endpoint reports an error', function () {
         'python.test/iesco/results/task-1' => Http::response(['error' => 'No results available']),
     ]);
 
-    (new FetchBillJob($batch->id, [$property->reference_no]))->handle();
+    app()->call([new FetchBillJob($batch->id, [$property->reference_no]), 'handle']);
 })->throws(RuntimeException::class, 'No results available');
 
 it('polls the status endpoint of the requested provider', function () {
@@ -97,7 +97,7 @@ it('polls the status endpoint of the requested provider', function () {
         'python.test/vcard/results/task-1' => Http::response([]),
     ]);
 
-    (new FetchBillJob($batch->id, [$property->reference_no], 'vcard'))->handle();
+    app()->call([new FetchBillJob($batch->id, [$property->reference_no], 'vcard'), 'handle']);
 
     expect($batch->fresh()->status)->toBe('completed');
 });

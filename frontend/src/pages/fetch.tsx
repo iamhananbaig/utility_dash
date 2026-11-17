@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchApi, bills as billsApi, locations as locationsApi, type FetchBatch, type Bill } from '@/lib/api'
+import {
+  fetchApi,
+  bills as billsApi,
+  locations as locationsApi,
+  properties as propertiesApi,
+  type FetchBatch,
+  type Bill,
+  type Property,
+} from '@/lib/api'
+import { CaptchaFetchDialog } from '@/components/captcha-fetch-dialog'
 import { useQuery } from '@/hooks/use-query'
 import { notify } from '@/lib/notify'
 import { isAbortError, waitForBatch } from '@/lib/poll'
@@ -34,6 +43,9 @@ export function FetchPage() {
   const [results, setResults] = useState<Bill[]>([])
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [pdfTick, setPdfTick] = useState(0)
+  const [captchaQueue, setCaptchaQueue] = useState<Property[]>([])
+  const [captchaRun, setCaptchaRun] = useState(0)
+  const [captchaOpen, setCaptchaOpen] = useState(false)
 
   const { data: locationsList = [] } = useQuery('locations', () => locationsApi.list())
   const { data: pdfStatus } = useQuery(`pdf-status:${pdfTick}`, () => billsApi.pdfStatus())
@@ -85,36 +97,33 @@ export function FetchPage() {
     return () => controller.abort()
   }, [followBatch])
 
-  const startFetch = async () => {
+  const startCaptchaFetch = async () => {
     setStarting(true)
-    setResults([])
-    setBatch(null)
-
-    const params: { location_id?: number; property_type?: string; provider?: string } = {}
-    if (filterLocation !== 'all') params.location_id = Number(filterLocation)
-    if (filterType !== 'all') params.property_type = filterType
-    if (filterProvider) params.provider = filterProvider
-
     try {
-      const response = await fetchApi.start(params)
-      if (response.total_refs === 0) {
+      const params: Record<string, string> = { status: 'active', provider: filterProvider }
+      if (filterLocation !== 'all') params.location_id = filterLocation
+      if (filterType !== 'all') params.property_type = filterType
+      const props = await propertiesApi.list(params)
+      if (props.length === 0) {
         notify.info('Nothing to fetch', 'No active properties match these filters.')
         return
       }
-      setBatch({
-        batch_id: response.batch_id,
-        total_refs: response.total_refs,
-        completed: 0,
-        success_count: 0,
-        fail_count: 0,
-        status: 'running',
-        progress: 0,
-      })
-      followBatch(response.batch_id)
+      setCaptchaQueue(props)
+      setCaptchaRun((n) => n + 1)
+      setCaptchaOpen(true)
     } catch (err) {
-      notify.error(err, 'Could not start fetch')
+      notify.error(err, 'Could not load properties')
     } finally {
       setStarting(false)
+    }
+  }
+
+  const finishCaptchaFetch = (entries: { bill?: Bill }[]) => {
+    const fetched = entries.flatMap((e) => (e.bill ? [e.bill] : []))
+    if (fetched.length > 0) {
+      setBatch(null)
+      setResults(fetched)
+      setPdfTick((t) => t + 1)
     }
   }
 
@@ -190,9 +199,13 @@ export function FetchPage() {
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={startFetch} disabled={fetching}>
+            <Button
+              onClick={startCaptchaFetch}
+              disabled={fetching || filterProvider !== 'iesco'}
+              title={filterProvider !== 'iesco' ? 'Only IESCO bills can be fetched' : undefined}
+            >
               <IconCloudDownload className="mr-2 h-4 w-4" />
-              {fetching ? 'Fetching...' : 'Fetch Bills'}
+              {starting ? 'Loading...' : fetching ? 'Fetch running...' : 'Fetch with CAPTCHA'}
             </Button>
           </div>
         </CardContent>
@@ -338,6 +351,15 @@ export function FetchPage() {
             )}
           </CardContent>
         </Card>
+      )}
+      {captchaRun > 0 && (
+        <CaptchaFetchDialog
+          key={captchaRun}
+          properties={captchaQueue}
+          open={captchaOpen}
+          onOpenChange={setCaptchaOpen}
+          onFinished={finishCaptchaFetch}
+        />
       )}
     </div>
   )

@@ -31,3 +31,18 @@ class TaskStatus(BaseModel):
 class TaskResult(BaseModel):
     error: str
     status: str | None = None
+
+
+class CaptchaStartRequest(BaseModel):
+    reference_no: str
+
+
+class CaptchaChallenge(BaseModel):
+    challenge_id: str
+    reference_no: str
+    image: str  # data: URL of the CAPTCHA image
+
+
+class CaptchaSubmitRequest(BaseModel):
+    challenge_id: str
+    answer: str
