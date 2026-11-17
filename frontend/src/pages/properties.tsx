@@ -274,7 +274,7 @@ export function PropertiesPage() {
             className="pl-9"
           />
         </div>
-        <Select value={filterLocation} onValueChange={(v) => setFilterLocation(v ?? 'all')}>
+        <Select items={[{ value: 'all', label: 'All Locations' }, ...locationsList.map((loc) => ({ value: String(loc.id), label: loc.code }))]} value={filterLocation} onValueChange={(v) => setFilterLocation(v ?? 'all')}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="All Locations" />
           </SelectTrigger>
@@ -287,7 +287,7 @@ export function PropertiesPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v ?? 'all')}>
+        <Select items={[{ value: 'all', label: 'All Status' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} value={filterStatus} onValueChange={(v) => setFilterStatus(v ?? 'all')}>
           <SelectTrigger className="w-32">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
@@ -422,7 +422,7 @@ export function PropertiesPage() {
             </div>
             <div>
               <label className="text-sm font-medium">Location</label>
-              <Select
+              <Select items={[...locationsList.map((loc) => ({ value: String(loc.id), label: loc.code }))]}
                 value={form.location_id}
                 onValueChange={(v) => setForm({ ...form, location_id: v ?? '' })}
               >
@@ -440,7 +440,7 @@ export function PropertiesPage() {
             </div>
             <div>
               <label className="text-sm font-medium">Property Type</label>
-              <Select
+              <Select items={[{ value: 'branch', label: 'Branch' }, { value: 'hostel', label: 'Hostel' }]}
                 value={form.property_type}
                 onValueChange={(v) => setForm({ ...form, property_type: (v ?? 'branch') as 'branch' | 'hostel' })}
               >
@@ -455,7 +455,7 @@ export function PropertiesPage() {
             </div>
             <div>
               <label className="text-sm font-medium">Status</label>
-              <Select
+              <Select items={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]}
                 value={form.status}
                 onValueChange={(v) => setForm({ ...form, status: (v ?? 'active') as 'active' | 'inactive' })}
               >

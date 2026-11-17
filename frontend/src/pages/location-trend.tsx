@@ -59,7 +59,7 @@ export function LocationTrendPage() {
       <div className="flex gap-4 items-end">
         <div className="flex-1">
           <label className="text-sm font-medium">Location</label>
-          <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v ?? '')}>
+          <Select items={[...locationsList.map((loc) => ({ value: String(loc.id), label: loc.code }))]} value={selectedLocation} onValueChange={(v) => setSelectedLocation(v ?? '')}>
             <SelectTrigger>
               <SelectValue placeholder="Select location" />
             </SelectTrigger>
@@ -74,7 +74,7 @@ export function LocationTrendPage() {
         </div>
         <div className="w-32">
           <label className="text-sm font-medium">Year</label>
-          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+          <Select items={[...years.map((y) => ({ value: String(y), label: String(y) }))]} value={String(year)} onValueChange={(v) => setYear(Number(v))}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>

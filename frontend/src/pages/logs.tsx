@@ -45,7 +45,7 @@ export function LogsPage() {
       <h1 className="text-2xl font-bold">Activity Logs</h1>
 
       <div className="flex gap-2">
-        <Select value={filterType} onValueChange={(v) => { setFilterType(v ?? 'all'); setPage(1) }}>
+        <Select items={[{ value: 'all', label: 'All Types' }, { value: 'fetch', label: 'Fetch' }, { value: 'pdf', label: 'PDF' }, { value: 'error', label: 'Error' }]} value={filterType} onValueChange={(v) => { setFilterType(v ?? 'all'); setPage(1) }}>
           <SelectTrigger className="w-32">
             <SelectValue placeholder="All Types" />
           </SelectTrigger>
@@ -56,7 +56,7 @@ export function LogsPage() {
             <SelectItem value="error">Error</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v ?? 'all'); setPage(1) }}>
+        <Select items={[{ value: 'all', label: 'All Status' }, { value: 'success', label: 'Success' }, { value: 'failed', label: 'Failed' }]} value={filterStatus} onValueChange={(v) => { setFilterStatus(v ?? 'all'); setPage(1) }}>
           <SelectTrigger className="w-32">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>

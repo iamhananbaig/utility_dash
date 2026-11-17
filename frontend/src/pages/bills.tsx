@@ -498,7 +498,7 @@ export function BillsPage() {
             className="pl-9"
           />
         </div>
-        <Select
+        <Select items={[{ value: 'all', label: 'All Status' }, { value: 'unpaid', label: 'Unpaid' }, { value: 'in_process', label: 'In Process' }, { value: 'paid', label: 'Paid' }, { value: 'disputed', label: 'Disputed' }, { value: 'cancelled', label: 'Cancelled' }]}
           value={filterStatus}
           onValueChange={(v) => {
             setFilterStatus(v ?? 'all')
@@ -517,7 +517,7 @@ export function BillsPage() {
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
-        <Select
+        <Select items={[{ value: 'all', label: 'All Locations' }, ...locationsList.map((loc) => ({ value: String(loc.id), label: loc.code }))]}
           value={filterLocation}
           onValueChange={(v) => {
             setFilterLocation(v ?? 'all')
@@ -749,7 +749,7 @@ export function BillsPage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Status</label>
-              <Select
+              <Select items={[{ value: 'unpaid', label: 'Unpaid' }, { value: 'in_process', label: 'In Process' }, { value: 'paid', label: 'Paid' }, { value: 'disputed', label: 'Disputed' }, { value: 'cancelled', label: 'Cancelled' }]}
                 value={statusForm.status}
                 onValueChange={(v) =>
                   setStatusForm({ ...statusForm, status: v ?? 'disputed' })

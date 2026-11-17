@@ -143,7 +143,7 @@ export function FetchPage() {
           <div className="flex items-end gap-4">
             <div className="flex-1">
               <label className="text-sm font-medium">Provider</label>
-              <Select value={filterProvider} onValueChange={(v) => setFilterProvider(v ?? 'iesco')}>
+              <Select items={[{ value: 'iesco', label: 'IESCO' }, { value: 'lesco', label: 'LESCO' }, { value: 'qesco', label: 'QESCO' }, { value: 'gesco', label: 'GESCO' }, { value: 'fesco', label: 'FESCO' }, { value: 'tesco', label: 'TESCO' }, { value: 'sepco', label: 'SEPCO' }, { value: 'hesco', label: 'HESCO' }, { value: 'mepco', label: 'MEPCO' }, { value: 'pesco', label: 'PESCO' }]} value={filterProvider} onValueChange={(v) => setFilterProvider(v ?? 'iesco')}>
                 <SelectTrigger>
                   <SelectValue placeholder="Provider" />
                 </SelectTrigger>
@@ -163,7 +163,7 @@ export function FetchPage() {
             </div>
             <div className="flex-1">
               <label className="text-sm font-medium">Location</label>
-              <Select value={filterLocation} onValueChange={(v) => setFilterLocation(v ?? 'all')}>
+              <Select items={[{ value: 'all', label: 'All Locations' }, ...locationsList.map((loc) => ({ value: String(loc.id), label: loc.code }))]} value={filterLocation} onValueChange={(v) => setFilterLocation(v ?? 'all')}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Locations" />
                 </SelectTrigger>
@@ -179,7 +179,7 @@ export function FetchPage() {
             </div>
             <div className="flex-1">
               <label className="text-sm font-medium">Property Type</label>
-              <Select value={filterType} onValueChange={(v) => setFilterType(v ?? 'all')}>
+              <Select items={[{ value: 'all', label: 'All Types' }, { value: 'branch', label: 'Branch' }, { value: 'hostel', label: 'Hostel' }]} value={filterType} onValueChange={(v) => setFilterType(v ?? 'all')}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>
