@@ -4,8 +4,10 @@
 # Starts 5 workers for fetch queue and 5 workers for PDF queue
 
 WORKERS_PER_QUEUE=5
-LOG_DIR="/home/hanan/utility_dash/logs"
-PID_DIR="/home/hanan/utility_dash/pids"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARTISAN="$SCRIPT_DIR/backend/artisan"
+LOG_DIR="$SCRIPT_DIR/logs"
+PID_DIR="$SCRIPT_DIR/pids"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
@@ -26,7 +28,7 @@ stop_workers() {
 start_workers() {
     echo "Starting $WORKERS_PER_QUEUE workers for 'default' queue..."
     for i in $(seq 1 $WORKERS_PER_QUEUE); do
-        nohup php /home/hanan/utility_dash/backend/artisan queue:work redis \
+        nohup php "$ARTISAN" queue:work redis \
             --queue=default \
             --sleep=3 \
             --tries=3 \
@@ -38,7 +40,7 @@ start_workers() {
 
     echo "Starting $WORKERS_PER_QUEUE workers for 'pdf' queue..."
     for i in $(seq 1 $WORKERS_PER_QUEUE); do
-        nohup php /home/hanan/utility_dash/backend/artisan queue:work redis \
+        nohup php "$ARTISAN" queue:work redis \
             --queue=pdf \
             --sleep=3 \
             --tries=2 \
