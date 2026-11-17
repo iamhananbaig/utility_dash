@@ -41,7 +41,7 @@ Run everything locally with hot-reload.
 ```bash
 cd backend
 composer run setup    # installs deps, generates key, migrates, builds frontend
-composer run dev      # http://localhost:8000
+composer run dev      # starts backend :8000, frontend :5173, python-api :8001, queue listener
 ```
 
 If `composer run setup` fails on the npm step, run frontend setup separately:

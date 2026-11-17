@@ -28,8 +28,13 @@ Web application for managing and tracking utility bills from Pakistani providers
 cd backend
 cp .env.example .env   # then configure DB credentials
 composer run setup      # installs deps, generates key, runs migrations, builds frontend assets
-composer run dev        # starts dev server at localhost:8000
+composer run dev        # starts the WHOLE stack (see below)
 ```
+
+`composer run dev` (= `php artisan dev`) runs every dev process in one terminal:
+Laravel on :8000, a queue listener for the `default` and `pdf` queues, the Python API
+on :8001 and the React frontend on :5173. The sections below are only needed if you
+want to run a service on its own.
 
 ### Frontend
 
@@ -43,11 +48,13 @@ npm run dev            # starts at localhost:5173
 
 ```bash
 cd python-api
-uv sync
+uv sync --extra test
 uv run uvicorn main:app --reload --port 8001
 ```
 
-### Workers (background jobs)
+### Workers (background jobs, prod-style)
+
+`composer run dev` already processes jobs. `workers.sh` is for long-running workers:
 
 ```bash
 ./workers.sh start     # starts 5 default + 5 pdf queue workers
@@ -68,7 +75,7 @@ uv run uvicorn main:app --reload --port 8001
 | Run backend tests | `cd backend && php artisan test --compact` |
 | Run single test | `cd backend && php artisan test --compact --filter=TestName` |
 | Build frontend assets | `cd frontend && npm run build` |
-| Python tests | `cd python-api && uv run pytest` |
+| Python tests | `cd python-api && uv run --extra test pytest` |
 
 ### Workflow
 
