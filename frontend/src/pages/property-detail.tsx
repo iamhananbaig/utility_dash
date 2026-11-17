@@ -1,11 +1,5 @@
-import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import {
-  properties as propertiesApi,
-  type Property,
-  type Bill,
-  type ReferenceHistory,
-} from '@/lib/api'
+import { ApiError, properties as propertiesApi } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,37 +12,32 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { IconArrowLeft } from '@tabler/icons-react'
+import { useQuery } from '@/hooks/use-query'
 import { formatDate, formatBillMonth, formatDateTime } from '@/lib/utils'
 
 export function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const [property, setProperty] = useState<Property | null>(null)
-  const [bills, setBills] = useState<Bill[]>([])
-  const [history, setHistory] = useState<ReferenceHistory[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!id) return
+  const { data, loading, error } = useQuery(id ? `property:${id}` : null, () => {
     const propId = Number(id)
-    Promise.all([
+    return Promise.all([
       propertiesApi.get(propId),
       propertiesApi.bills(propId),
       propertiesApi.history(propId),
     ])
-      .then(([p, b, h]) => {
-        setProperty(p)
-        setBills(b)
-        setHistory(h)
-      })
-      .finally(() => setLoading(false))
-  }, [id])
+  })
+  const [property, bills = [], history = []] = data ?? []
 
   if (loading) {
     return <div className="text-muted-foreground">Loading...</div>
   }
 
   if (!property) {
-    return <div className="text-muted-foreground">Property not found</div>
+    const notFound = error instanceof ApiError && error.status === 404
+    return (
+      <div className={notFound || !error ? 'text-muted-foreground' : 'text-sm text-destructive'}>
+        {notFound || !error ? 'Property not found' : `Could not load property: ${error.message}`}
+      </div>
+    )
   }
 
   return (

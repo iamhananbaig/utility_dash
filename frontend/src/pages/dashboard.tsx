@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { dashboard, type DashboardData } from '@/lib/api'
+import { dashboard } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
 import { formatDate, formatBillMonth } from '@/lib/utils'
 import {
   IconAlertTriangle,
@@ -10,22 +10,18 @@ import {
 } from '@tabler/icons-react'
 
 export function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data, loading, error } = useQuery('dashboard', () => dashboard.get())
 
-  useEffect(() => {
-    dashboard
-      .get()
-      .then(setData)
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) {
+  if (loading && !data) {
     return <div className="text-muted-foreground">Loading...</div>
   }
 
   if (!data) {
-    return <div className="text-muted-foreground">Failed to load dashboard</div>
+    return (
+      <div className="text-sm text-destructive">
+        Failed to load dashboard{error ? `: ${error.message}` : ''}
+      </div>
+    )
   }
 
   const { stats, recent_bills } = data

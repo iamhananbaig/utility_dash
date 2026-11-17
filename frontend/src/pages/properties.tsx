@@ -1,12 +1,16 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import {
   properties as propertiesApi,
   locations as locationsApi,
   fetchApi,
   type Property,
-  type Location,
 } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { notify } from '@/lib/notify'
+import { confirmDialog } from '@/lib/confirm'
+import { isAbortError, waitForBatch } from '@/lib/poll'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -42,9 +46,6 @@ import {
 } from '@tabler/icons-react'
 
 export function PropertiesPage() {
-  const [data, setData] = useState<Property[]>([])
-  const [locationsList, setLocationsList] = useState<Location[]>([])
-  const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Property | null>(null)
   const [search, setSearch] = useState('')
@@ -77,26 +78,24 @@ export function PropertiesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const refUpdateInputRef = useRef<HTMLInputElement>(null)
 
-  const load = () => {
-    setLoading(true)
-    const params: Record<string, string> = {}
-    if (search) params.search = search
-    if (filterLocation !== 'all') params.location_id = filterLocation
-    if (filterStatus !== 'all') params.status = filterStatus
-    if (filterProvider) params.provider = filterProvider
-    propertiesApi
-      .list(params)
-      .then(setData)
-      .finally(() => setLoading(false))
-  }
+  const debouncedSearch = useDebouncedValue(search.trim())
+  const params: Record<string, string> = {}
+  if (debouncedSearch) params.search = debouncedSearch
+  if (filterLocation !== 'all') params.location_id = filterLocation
+  if (filterStatus !== 'all') params.status = filterStatus
+  if (filterProvider) params.provider = filterProvider
+  const { data = [], loading, error, reload } = useQuery(`properties:${JSON.stringify(params)}`, () =>
+    propertiesApi.list(params),
+  )
+  const { data: locationsList = [] } = useQuery('locations', () => locationsApi.list())
 
+  // Abort in-flight fetch polling when leaving the page.
+  const abortRef = useRef(new AbortController())
   useEffect(() => {
-    locationsApi.list().then(setLocationsList)
+    const controller = new AbortController()
+    abortRef.current = controller
+    return () => controller.abort()
   }, [])
-
-  useEffect(() => {
-    load()
-  }, [search, filterLocation, filterStatus, filterProvider])
 
   const openCreate = () => {
     setEditing(null)
@@ -146,16 +145,30 @@ export function PropertiesPage() {
         await propertiesApi.create(payload)
       }
       setDialogOpen(false)
-      load()
+      notify.success(editing ? 'Property updated' : 'Property added')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not save property')
     } finally {
       setSaving(false)
     }
   }
 
-  const remove = async (id: number) => {
-    if (!confirm('Delete this property?')) return
-    await propertiesApi.delete(id)
-    load()
+  const remove = async (prop: Property) => {
+    const ok = await confirmDialog({
+      title: `Delete ${prop.name}?`,
+      description: `Reference ${prop.reference_no}. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await propertiesApi.delete(prop.id)
+      notify.success('Property deleted')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not delete property')
+    }
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -163,12 +176,13 @@ export function PropertiesPage() {
     if (!file) return
     try {
       const result = await propertiesApi.import(file)
-      alert(result.message)
-      load()
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Import failed')
+      notify.success('Import complete', result.message)
+      reload()
+    } catch (err) {
+      notify.error(err, 'Import failed')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleRefUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,35 +190,29 @@ export function PropertiesPage() {
     if (!file) return
     try {
       const result = await propertiesApi.bulkUpdateRef(file)
-      alert(result.message)
-      load()
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Import failed')
+      notify.success('References updated', result.message)
+      reload()
+    } catch (err) {
+      notify.error(err, 'Reference update failed')
+    } finally {
+      if (refUpdateInputRef.current) refUpdateInputRef.current.value = ''
     }
-    if (refUpdateInputRef.current) refUpdateInputRef.current.value = ''
   }
 
   const handleFetchSingle = async (prop: Property) => {
     setFetchingId(prop.id)
     try {
       const response = await fetchApi.single(prop.reference_no, prop.provider)
-      const poll = async (): Promise<void> => {
-        const status = await fetchApi.status(response.batch_id)
-        if (status.status === 'completed') {
-          if (status.fail_count > 0) {
-            alert(`Fetch completed: 0 success, 1 failed for ${prop.reference_no}`)
-          } else {
-            alert(`Fetch completed: bill saved for ${prop.reference_no}`)
-          }
-          setFetchingId(null)
-          return
-        }
-        setTimeout(poll, 2000)
+      const batch = await waitForBatch(response.batch_id, { signal: abortRef.current.signal })
+      if (batch.status === 'failed' || batch.fail_count > 0) {
+        notify.warning('Fetch failed', `Could not fetch the bill for ${prop.reference_no}. See Logs for details.`)
+      } else {
+        notify.success('Bill fetched', `Bill saved for ${prop.reference_no}`)
       }
-      poll()
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Fetch failed')
-      setFetchingId(null)
+    } catch (err) {
+      if (!isAbortError(err)) notify.error(err, 'Fetch failed')
+    } finally {
+      if (!abortRef.current.signal.aborted) setFetchingId(null)
     }
   }
 
@@ -297,7 +305,9 @@ export function PropertiesPage() {
         />
       </div>
 
-      {loading ? (
+      {error && !loading ? (
+        <p className="text-sm text-destructive">Could not load properties: {error.message}</p>
+      ) : loading && data.length === 0 ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : (
         <div className="rounded-md border">
@@ -353,7 +363,7 @@ export function PropertiesPage() {
                       <Button variant="ghost" size="icon" onClick={() => openEdit(prop)}>
                         <IconPencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => remove(prop.id)}>
+                      <Button variant="ghost" size="icon" onClick={() => remove(prop)}>
                         <IconTrash className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>

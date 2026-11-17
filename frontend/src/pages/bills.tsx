@@ -1,10 +1,13 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   bills as billsApi,
   locations as locationsApi,
   type Bill,
-  type Location,
 } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { notify } from '@/lib/notify'
+import { isAbortError, pollUntil } from '@/lib/poll'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -38,7 +41,7 @@ import {
   IconFile,
   IconUpload,
 } from '@tabler/icons-react'
-import { formatDate, formatBillMonth } from '@/lib/utils'
+import { formatDate, formatBillMonth, todayISO } from '@/lib/utils'
 
 function buildPrintHtml(htmlParts: string[]): string {
   const cacheBust = `?v=${Date.now()}`
@@ -91,12 +94,7 @@ function printIframe(combinedHtml: string): boolean {
 }
 
 export function BillsPage() {
-  const [data, setData] = useState<Bill[]>([])
-  const [locationsList, setLocationsList] = useState<Location[]>([])
-  const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
-  const [lastPage, setLastPage] = useState(1)
-  const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterLocation, setFilterLocation] = useState<string>('all')
@@ -127,40 +125,38 @@ export function BillsPage() {
   const [payForm, setPayForm] = useState({
     batch_no: '',
     instruction_id: '',
-    payment_date: new Date().toISOString().split('T')[0],
+    payment_date: todayISO(),
   })
   const [paySaving, setPaySaving] = useState(false)
   const [paymentDetailOpen, setPaymentDetailOpen] = useState(false)
   const [paymentDetailBill, setPaymentDetailBill] = useState<Bill | null>(null)
 
-  const load = () => {
-    setLoading(true)
-    const params: Record<string, string> = { page: String(page), per_page: '50' }
-    if (search) params.search = search
-    if (filterStatus !== 'all') params.status = filterStatus
-    if (filterLocation !== 'all') params.location_id = filterLocation
-    if (filterMonth) params.bill_month = filterMonth
-    billsApi
-      .list(params)
-      .then((res) => {
-        setData(res.data)
-        setLastPage(res.last_page)
-        setTotal(res.total)
-      })
-      .finally(() => setLoading(false))
-  }
+  const debouncedSearch = useDebouncedValue(search.trim())
+  const filterParams: Record<string, string> = {}
+  if (filterStatus !== 'all') filterParams.status = filterStatus
+  if (filterLocation !== 'all') filterParams.location_id = filterLocation
+  if (filterMonth) filterParams.bill_month = filterMonth
+  const listParams: Record<string, string> = { ...filterParams, page: String(page), per_page: '50' }
+  if (debouncedSearch) listParams.search = debouncedSearch
+  const { data: res, loading, error, reload } = useQuery(`bills:${JSON.stringify(listParams)}`, () =>
+    billsApi.list(listParams),
+  )
+  const data = res?.data ?? []
+  const lastPage = res?.last_page ?? 1
+  const total = res?.total ?? 0
+  const { data: locationsList = [] } = useQuery('locations', () => locationsApi.list())
 
+  // Abort in-flight PDF polling when leaving the page.
+  const abortRef = useRef(new AbortController())
   useEffect(() => {
-    locationsApi.list().then(setLocationsList)
+    const controller = new AbortController()
+    abortRef.current = controller
+    return () => controller.abort()
   }, [])
-
-  useEffect(() => {
-    load()
-  }, [page, search, filterStatus, filterLocation, filterMonth])
 
   const markPaid = async (id: number) => {
     setPayDialogBill(data.find(b => b.id === id) || null)
-    setPayForm({ batch_no: '', instruction_id: '', payment_date: new Date().toISOString().split('T')[0] })
+    setPayForm({ batch_no: '', instruction_id: '', payment_date: todayISO() })
     setPayDialogOpen(true)
   }
 
@@ -175,10 +171,10 @@ export function BillsPage() {
       })
       setPayDialogOpen(false)
       setSelectedIds(new Set())
-      load()
-    } catch (err: unknown) {
-      const error = err as { message?: string }
-      alert(error.message || 'Failed to mark as paid')
+      notify.success('Bill marked as paid')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not mark as paid')
     } finally {
       setPaySaving(false)
     }
@@ -204,7 +200,10 @@ export function BillsPage() {
         voucher_no: processForm.voucher_no,
       })
       setProcessDialogOpen(false)
-      load()
+      notify.success('Bill marked as in process')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not process bill')
     } finally {
       setProcessSaving(false)
     }
@@ -218,9 +217,19 @@ export function BillsPage() {
 
   const saveEditAmount = async () => {
     if (!editAmountBill) return
-    await billsApi.updateAmount(editAmountBill.id, { website_payable: Number(editAmount) })
-    setEditAmountOpen(false)
-    load()
+    const amount = Number(editAmount)
+    if (!Number.isFinite(amount) || amount < 0) {
+      notify.warning('Invalid amount', 'Enter a positive number.')
+      return
+    }
+    try {
+      await billsApi.updateAmount(editAmountBill.id, { website_payable: amount })
+      setEditAmountOpen(false)
+      notify.success('Amount updated')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not update amount')
+    }
   }
 
   const handlePdfClick = (bill: Bill) => {
@@ -232,30 +241,32 @@ export function BillsPage() {
     }
   }
 
-  const generatePdfForBill = async (billId: number) => {
-    setGeneratingPdfId(billId)
+  const generatePdfForBill = async (bill: Bill) => {
+    setGeneratingPdfId(bill.id)
     try {
-      const before = await billsApi.pdfStatus()
-      await billsApi.generatePdf({ ids: [billId] })
-      // Poll until this bill's PDF is generated
-      const check = async () => {
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 2000))
-          const status = await billsApi.pdfStatus()
-          if (status.generated > before.generated) {
-            window.open(billsApi.pdf(billId), '_blank')
-            setPdfDialogOpen(false)
-            setGeneratingPdfId(null)
-            load()
-            return
-          }
-        }
-        setGeneratingPdfId(null)
-        alert('PDF generation is taking longer than expected. Please try again later.')
+      const queued = await billsApi.generatePdf({ ids: [bill.id] })
+      if (queued.queued === 0) {
+        notify.warning('Cannot generate PDF', 'This bill has no stored source HTML (e.g. it was imported, not fetched).')
+        return
       }
-      check()
-    } catch {
-      setGeneratingPdfId(null)
+      const params: Record<string, string> = { property_id: String(bill.property_id), per_page: '50' }
+      if (bill.bill_month) params.bill_month = bill.bill_month
+      await pollUntil(
+        () => billsApi.list(params).then((r) => r.data.find((b) => b.id === bill.id)),
+        (b) => Boolean(b?.pdf_generated_at),
+        {
+          signal: abortRef.current.signal,
+          timeoutMs: 2 * 60_000,
+          timeoutMessage: 'PDF generation is taking longer than expected. Are the pdf queue workers running?',
+        },
+      )
+      window.open(billsApi.pdf(bill.id), '_blank')
+      setPdfDialogOpen(false)
+      reload()
+    } catch (err) {
+      if (!isAbortError(err)) notify.error(err, 'PDF generation failed')
+    } finally {
+      if (!abortRef.current.signal.aborted) setGeneratingPdfId(null)
     }
   }
 
@@ -267,9 +278,14 @@ export function BillsPage() {
 
   const updateStatus = async () => {
     if (!selectedBill) return
-    await billsApi.updateStatus(selectedBill.id, statusForm)
-    setStatusDialogOpen(false)
-    load()
+    try {
+      await billsApi.updateStatus(selectedBill.id, statusForm)
+      setStatusDialogOpen(false)
+      notify.success('Status updated')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not update status')
+    }
   }
 
   const toggleSelect = (id: number) => {
@@ -293,9 +309,11 @@ export function BillsPage() {
     setIsPrinting(true)
     try {
       const res = await fetch(billsApi.html(billId))
-      if (!res.ok) return
+      if (!res.ok) throw new Error(`Server returned ${res.status}`)
       const html = await res.text()
       printIframe(buildPrintHtml([`<div class="bill-page">${html}</div>`]))
+    } catch (err) {
+      notify.error(err, 'Could not load bill for printing')
     } finally {
       setIsPrinting(false)
     }
@@ -355,7 +373,7 @@ export function BillsPage() {
     }
   }).catch(function(){});
 })();
-<\/script>`
+</script>`
           htmlParts.push(`<div class="bill-page">${html}${qrScript}</div>`)
           idx++
         }
@@ -363,6 +381,10 @@ export function BillsPage() {
       if (htmlParts.length > 0) {
         printIframe(buildPrintHtml(htmlParts))
       }
+      const skipped = selectedIds.size - htmlParts.length
+      if (skipped > 0) notify.warning(`${skipped} bill(s) could not be loaded and were skipped`)
+    } catch (err) {
+      notify.error(err, 'Could not prepare bills for printing')
     } finally {
       setIsPrinting(false)
     }
@@ -374,26 +396,27 @@ export function BillsPage() {
     try {
       const result = await billsApi.bulkPdf(Array.from(selectedIds))
       setPdfBatchId(result.batch_id)
-      const poll = async (): Promise<void> => {
-        const status = await billsApi.pdfBatchStatus(result.batch_id)
-        if (status.status === 'completed') {
-          billsApi.pdfBatchDownload(result.batch_id)
-          setPdfBatchId(null)
-          setPdfGenerating(false)
-          return
-        }
-        if (status.status === 'failed') {
-          alert(status.error || 'PDF generation failed')
-          setPdfBatchId(null)
-          setPdfGenerating(false)
-          return
-        }
-        setTimeout(poll, 2000)
+      const status = await pollUntil(
+        () => billsApi.pdfBatchStatus(result.batch_id),
+        (s) => s.status === 'completed' || s.status === 'failed',
+        {
+          signal: abortRef.current.signal,
+          timeoutMs: 15 * 60_000,
+          timeoutMessage: 'PDF generation is taking longer than expected. Are the pdf queue workers running?',
+        },
+      )
+      if (status.status === 'completed') {
+        billsApi.pdfBatchDownload(result.batch_id)
+      } else {
+        notify.error(status.error || 'Unknown error', 'PDF generation failed')
       }
-      poll()
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to queue PDF')
-      setPdfGenerating(false)
+    } catch (err) {
+      if (!isAbortError(err)) notify.error(err, 'PDF generation failed')
+    } finally {
+      if (!abortRef.current.signal.aborted) {
+        setPdfBatchId(null)
+        setPdfGenerating(false)
+      }
     }
   }
 
@@ -402,12 +425,13 @@ export function BillsPage() {
     if (!file) return
     try {
       const result = await billsApi.import(file)
-      alert(result.message)
-      load()
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Import failed')
+      notify.success('Import complete', result.message)
+      reload()
+    } catch (err) {
+      notify.error(err, 'Import failed')
+    } finally {
+      if (billImportRef.current) billImportRef.current.value = ''
     }
-    if (billImportRef.current) billImportRef.current.value = ''
   }
 
   return (
@@ -434,7 +458,7 @@ export function BillsPage() {
           <Button
             variant="outline"
             onClick={() =>
-              billsApi.export({ status: filterStatus !== 'all' ? filterStatus : '' })
+              billsApi.export(filterParams)
             }
           >
             <IconDownload className="mr-2 h-4 w-4" />
@@ -523,7 +547,9 @@ export function BillsPage() {
         />
       </div>
 
-      {loading ? (
+      {error && !loading ? (
+        <p className="text-sm text-destructive">Could not load bills: {error.message}</p>
+      ) : loading && !res ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : (
         <>
@@ -859,7 +885,7 @@ export function BillsPage() {
               Cancel
             </Button>
             <Button
-              onClick={() => pdfDialogBill && generatePdfForBill(pdfDialogBill.id)}
+              onClick={() => pdfDialogBill && generatePdfForBill(pdfDialogBill)}
               disabled={generatingPdfId !== null}
             >
               {generatingPdfId !== null ? 'Generating...' : 'Generate PDF'}

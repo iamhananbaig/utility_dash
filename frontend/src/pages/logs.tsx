@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { logs as logsApi, type LogEntry } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
 import {
   Table,
   TableBody,
@@ -25,46 +27,18 @@ import {
 import { IconEye } from '@tabler/icons-react'
 import { formatDateTime } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
-
-interface LogEntry {
-  id: number
-  type: string
-  status: string
-  batch_id: number | null
-  message: string
-  details: Record<string, unknown> | null
-  created_at: string
-}
-
-interface PaginatedLogs {
-  data: LogEntry[]
-  current_page: number
-  last_page: number
-  total: number
-}
-
 export function LogsPage() {
-  const [logs, setLogs] = useState<PaginatedLogs | null>(null)
-  const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [filterType, setFilterType] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null)
 
-  const load = () => {
-    setLoading(true)
-    const params = new URLSearchParams({ page: String(page), per_page: '50' })
-    if (filterType !== 'all') params.set('type', filterType)
-    if (filterStatus !== 'all') params.set('status', filterStatus)
-
-    fetch(`${API_BASE}/logs?${params}`, { headers: { Accept: 'application/json' } })
-      .then((r) => r.json())
-      .then(setLogs)
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [page, filterType, filterStatus])
+  const params: Record<string, string> = { page: String(page), per_page: '50' }
+  if (filterType !== 'all') params.type = filterType
+  if (filterStatus !== 'all') params.status = filterStatus
+  const { data: logs, loading, error } = useQuery(`logs:${JSON.stringify(params)}`, () =>
+    logsApi.list(params),
+  )
 
   return (
     <div className="space-y-4">
@@ -94,7 +68,9 @@ export function LogsPage() {
         </Select>
       </div>
 
-      {loading ? (
+      {error && !loading ? (
+        <p className="text-sm text-destructive">Could not load logs: {error.message}</p>
+      ) : loading && !logs ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : logs ? (
         <>

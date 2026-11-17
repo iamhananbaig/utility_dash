@@ -1,5 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
-import { fetchApi, bills as billsApi, locations as locationsApi, type FetchBatch, type Bill, type Location } from '@/lib/api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { fetchApi, bills as billsApi, locations as locationsApi, type FetchBatch, type Bill } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
+import { notify } from '@/lib/notify'
+import { isAbortError, waitForBatch } from '@/lib/poll'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -23,59 +26,67 @@ import { IconCloudDownload, IconDownload, IconFile } from '@tabler/icons-react'
 import { formatDate, formatBillMonth } from '@/lib/utils'
 
 export function FetchPage() {
-  const [locationsList, setLocationsList] = useState<Location[]>([])
   const [filterLocation, setFilterLocation] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
   const [filterProvider, setFilterProvider] = useState<string>('iesco')
   const [batch, setBatch] = useState<FetchBatch | null>(null)
-  const [fetching, setFetching] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [results, setResults] = useState<Bill[]>([])
-  const [pdfStatus, setPdfStatus] = useState<{ total: number; generated: number; pending: number; jobs_pending: number; jobs_running: number } | null>(null)
   const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [pdfTick, setPdfTick] = useState(0)
 
-  const loadPdfStatus = () => {
-    billsApi.pdfStatus().then(setPdfStatus).catch(() => {})
-  }
+  const { data: locationsList = [] } = useQuery('locations', () => locationsApi.list())
+  const { data: pdfStatus } = useQuery(`pdf-status:${pdfTick}`, () => billsApi.pdfStatus())
 
+  const fetching = starting || batch?.status === 'running' || batch?.status === 'pending'
+
+  // Refresh PDF queue status every 3 seconds.
   useEffect(() => {
-    locationsApi.list().then(setLocationsList)
-    loadPdfStatus()
-    // Always poll PDF status every 3 seconds
-    const interval = setInterval(loadPdfStatus, 3000)
-    // Load latest fetch batch and poll if running
-    fetchApi.latest().then((latest) => {
-      if (latest && (latest.status === 'running' || latest.status === 'pending')) {
-        setBatch(latest)
-        pollStatus(latest.batch_id)
-      } else if (latest) {
-        setBatch(latest)
-        if (latest.status === 'completed') {
-          fetchApi.results(latest.batch_id).then(setResults).catch(() => {})
-        }
-      }
-    }).catch(() => {})
+    const interval = setInterval(() => setPdfTick((t) => t + 1), 3000)
     return () => clearInterval(interval)
   }, [])
 
-  const pollStatus = useCallback(
-    async (batchId: number) => {
-      const status = await fetchApi.status(batchId)
-      setBatch(status)
+  // Cancels any in-flight polling when the page unmounts.
+  const abortRef = useRef(new AbortController())
 
-      if (status.status === 'completed') {
-        const res = await fetchApi.results(batchId)
-        setResults(res)
-        setFetching(false)
-        return
+  const followBatch = useCallback(async (batchId: number) => {
+    try {
+      const done = await waitForBatch(batchId, {
+        signal: abortRef.current.signal,
+        onProgress: setBatch,
+      })
+      if (done.status === 'completed') {
+        setResults(await fetchApi.results(batchId))
+        notify.success('Fetch complete', `${done.success_count} succeeded, ${done.fail_count} failed`)
+      } else {
+        notify.warning('Fetch failed', 'See the Logs page for details.')
       }
+    } catch (err) {
+      if (!isAbortError(err)) notify.error(err, 'Lost track of the fetch')
+    }
+  }, [])
 
-      setTimeout(() => pollStatus(batchId), 2000)
-    },
-    [],
-  )
+  // On mount: resume the latest batch if it is still running, else show its results.
+  useEffect(() => {
+    const controller = new AbortController()
+    abortRef.current = controller
+    fetchApi
+      .latest()
+      .then((latest) => {
+        if (!latest?.batch_id || controller.signal.aborted) return
+        setBatch(latest)
+        if (latest.status === 'running' || latest.status === 'pending') {
+          followBatch(latest.batch_id)
+        } else if (latest.status === 'completed') {
+          return fetchApi.results(latest.batch_id).then(setResults)
+        }
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [followBatch])
 
   const startFetch = async () => {
-    setFetching(true)
+    setStarting(true)
     setResults([])
     setBatch(null)
 
@@ -84,34 +95,37 @@ export function FetchPage() {
     if (filterType !== 'all') params.property_type = filterType
     if (filterProvider) params.provider = filterProvider
 
-    const response = await fetchApi.start(params)
-
-    if (response.total_refs === 0) {
-      setFetching(false)
-      alert('No active properties found to fetch.')
-      return
+    try {
+      const response = await fetchApi.start(params)
+      if (response.total_refs === 0) {
+        notify.info('Nothing to fetch', 'No active properties match these filters.')
+        return
+      }
+      setBatch({
+        batch_id: response.batch_id,
+        total_refs: response.total_refs,
+        completed: 0,
+        success_count: 0,
+        fail_count: 0,
+        status: 'running',
+        progress: 0,
+      })
+      followBatch(response.batch_id)
+    } catch (err) {
+      notify.error(err, 'Could not start fetch')
+    } finally {
+      setStarting(false)
     }
-
-    setBatch({
-      batch_id: response.batch_id,
-      total_refs: response.total_refs,
-      completed: 0,
-      success_count: 0,
-      fail_count: 0,
-      status: 'running',
-      progress: 0,
-    })
-
-    pollStatus(response.batch_id)
   }
 
   const handleGeneratePdf = async () => {
     setGeneratingPdf(true)
     try {
       const result = await billsApi.generatePdf()
-      alert(result.message)
-      // Poll for completion
-      setTimeout(loadPdfStatus, 2000)
+      notify.success('PDF generation queued', result.message)
+      setPdfTick((t) => t + 1)
+    } catch (err) {
+      notify.error(err, 'Could not queue PDF generation')
     } finally {
       setGeneratingPdf(false)
     }

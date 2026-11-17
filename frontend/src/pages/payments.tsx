@@ -1,5 +1,7 @@
-import { useEffect, useState, useRef } from 'react'
-import { payments as paymentsApi, type PaymentProof } from '@/lib/api'
+import { useState, useRef } from 'react'
+import { payments as paymentsApi } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
+import { notify } from '@/lib/notify'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -14,25 +16,14 @@ import { IconUpload } from '@tabler/icons-react'
 import { formatDate, formatBillMonth } from '@/lib/utils'
 
 export function PaymentsPage() {
-  const [data, setData] = useState<PaymentProof[]>([])
-  const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
-  const [lastPage, setLastPage] = useState(1)
+  const { data: res, loading, error, reload } = useQuery(`payments:${page}`, () =>
+    paymentsApi.list({ page: String(page), per_page: '50' }),
+  )
+  const data = res?.data ?? []
+  const lastPage = res?.last_page ?? 1
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const load = () => {
-    setLoading(true)
-    paymentsApi
-      .list({ page: String(page), per_page: '50' })
-      .then((res) => {
-        setData(res.data)
-        setLastPage(res.last_page)
-      })
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [page])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -40,8 +31,14 @@ export function PaymentsPage() {
     setUploading(true)
     try {
       const result = await paymentsApi.upload(file)
-      alert(result.message)
-      load()
+      if (Number(result.not_found) > 0) {
+        notify.warning('Upload processed with unmatched rows', result.message)
+      } else {
+        notify.success('Payments uploaded', result.message)
+      }
+      reload()
+    } catch (err) {
+      notify.error(err, 'Upload failed')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -94,7 +91,9 @@ export function PaymentsPage() {
       </Card>
 
       {/* Payment History */}
-      {loading ? (
+      {error && !loading ? (
+        <p className="text-sm text-destructive">Could not load payments: {error.message}</p>
+      ) : loading && !res ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : (
         <div className="rounded-md border">

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { locations as locationsApi, type Location } from '@/lib/api'
+import { useState } from 'react'
+import { locations as locationsApi } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -19,7 +20,6 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 function fmt(value: number | null | undefined): string {
   if (value === null || value === undefined || value === 0) return '-'
@@ -33,48 +33,14 @@ function fmtRate(units: number | null | undefined, amount: number | null | undef
   return rate.toLocaleString('en-US')
 }
 
-interface MonthlyData {
-  amount: number
-  units: number | null
-}
-
-interface TrendData {
-  location: { id: number; code: string }
-  year: number
-  months: string[]
-  totals: number[]
-  units_totals: number[]
-  properties: Array<{
-    reference_no: string
-    name: string
-    property_type: string
-    monthly_data: Record<string, MonthlyData | null>
-  }>
-}
-
 export function LocationTrendPage() {
-  const [locationsList, setLocationsList] = useState<Location[]>([])
   const [selectedLocation, setSelectedLocation] = useState<string>('')
   const [year, setYear] = useState<number>(new Date().getFullYear())
-  const [data, setData] = useState<TrendData | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    locationsApi.list().then(setLocationsList)
-  }, [])
-
-  const loadTrend = () => {
-    if (!selectedLocation) return
-    setLoading(true)
-    fetch(`${API_BASE}/locations/${selectedLocation}/trend?year=${year}`)
-      .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => {
-    if (selectedLocation) loadTrend()
-  }, [selectedLocation, year])
+  const { data: locationsList = [] } = useQuery('locations', () => locationsApi.list())
+  const { data, loading, error } = useQuery(
+    selectedLocation ? `trend:${selectedLocation}:${year}` : null,
+    () => locationsApi.trend(selectedLocation, year),
+  )
 
   const chartData = data
     ? data.months.map((month, i) => ({
@@ -123,9 +89,15 @@ export function LocationTrendPage() {
         </div>
       </div>
 
+      {!selectedLocation && (
+        <p className="text-muted-foreground">Select a location to see its monthly trend.</p>
+      )}
       {loading && <p className="text-muted-foreground">Loading...</p>}
+      {error && !loading && (
+        <p className="text-sm text-destructive">Could not load trend: {error.message}</p>
+      )}
 
-      {data && !loading && (
+      {data && !loading && !error && (
         <>
           {/* Units Bar Chart */}
           <Card>

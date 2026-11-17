@@ -10,24 +10,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { IconSearch, IconPrinter } from '@tabler/icons-react'
+import { comparative as comparativeApi, type ComparativeResult } from '@/lib/api'
+import { notify } from '@/lib/notify'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
-
-interface ComparativeResult {
-  reference_no: string
-  property_name: string | null
-  location: string | null
-  property_type: string
-  meter_no: string | null
-  error?: string
-  comparative: {
-    current_month: string
-    prev_month: string
-    last_year_same_month: string
-    units: { current: number | null; prev: number | null; last_year: number | null }
-    amount: { current: number | null; prev: number | null; last_year: number | null }
-  }
-}
 
 function fmt(value: number | string | null | undefined): string {
   if (value === null || value === undefined) return '-'
@@ -56,20 +41,20 @@ export function ComparativePage() {
     if (refs.length === 0) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/comparative`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ reference_numbers: refs }),
-      })
-      const data = await res.json()
+      const data = await comparativeApi.analyze(refs)
       setResults(data)
-      if (data.length > 0 && data[0].comparative) {
-        setMonths({
-          current: data[0].comparative.current_month,
-          prev: data[0].comparative.prev_month,
-          lastYear: data[0].comparative.last_year_same_month,
-        })
-      }
+      const first = data.find((r) => r.comparative)
+      setMonths(
+        first
+          ? {
+              current: first.comparative.current_month,
+              prev: first.comparative.prev_month,
+              lastYear: first.comparative.last_year_same_month,
+            }
+          : null,
+      )
+    } catch (err) {
+      notify.error(err, 'Comparison failed')
     } finally {
       setLoading(false)
     }

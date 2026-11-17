@@ -1,5 +1,8 @@
-import { useEffect, useState, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { locations as locationsApi, type Location } from '@/lib/api'
+import { useQuery } from '@/hooks/use-query'
+import { notify } from '@/lib/notify'
+import { confirmDialog } from '@/lib/confirm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -20,20 +23,12 @@ import {
 import { IconPlus, IconPencil, IconTrash, IconUpload } from '@tabler/icons-react'
 
 export function LocationsPage() {
-  const [data, setData] = useState<Location[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data = [], loading, error, reload } = useQuery('locations', () => locationsApi.list())
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Location | null>(null)
   const [form, setForm] = useState({ code: '', city: '' })
   const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const load = () => {
-    setLoading(true)
-    locationsApi.list().then(setData).finally(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [])
 
   const openCreate = () => {
     setEditing(null)
@@ -57,16 +52,30 @@ export function LocationsPage() {
         await locationsApi.create(payload)
       }
       setDialogOpen(false)
-      load()
+      notify.success(editing ? 'Location updated' : 'Location added')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not save location')
     } finally {
       setSaving(false)
     }
   }
 
-  const remove = async (id: number) => {
-    if (!confirm('Delete this location?')) return
-    await locationsApi.delete(id)
-    load()
+  const remove = async (loc: Location) => {
+    const ok = await confirmDialog({
+      title: `Delete location ${loc.code}?`,
+      description: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await locationsApi.delete(loc.id)
+      notify.success('Location deleted')
+      reload()
+    } catch (err) {
+      notify.error(err, 'Could not delete location')
+    }
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,12 +83,13 @@ export function LocationsPage() {
     if (!file) return
     try {
       const result = await locationsApi.import(file)
-      alert(result.message)
-      load()
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Import failed')
+      notify.success('Import complete', result.message)
+      reload()
+    } catch (err) {
+      notify.error(err, 'Import failed')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   return (
@@ -112,7 +122,9 @@ export function LocationsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {error && !loading ? (
+        <p className="text-sm text-destructive">Could not load locations: {error.message}</p>
+      ) : loading && data.length === 0 ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : (
         <div className="rounded-md border">
@@ -136,7 +148,7 @@ export function LocationsPage() {
                       <Button variant="ghost" size="icon" onClick={() => openEdit(loc)}>
                         <IconPencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => remove(loc.id)}>
+                      <Button variant="ghost" size="icon" onClick={() => remove(loc)}>
                         <IconTrash className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>

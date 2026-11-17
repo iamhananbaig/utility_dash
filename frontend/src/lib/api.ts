@@ -1,21 +1,71 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...options?.headers,
-    },
-    ...options,
-  });
+export class ApiError extends Error {
+  status: number;
+  errors?: Record<string, string[]>;
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message || 'Request failed');
+  constructor(message: string, status: number, errors?: Record<string, string[]>) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.errors = errors;
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const isFormData = options.body instanceof FormData;
+  const headers: HeadersInit = {
+    Accept: 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...options.headers,
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new ApiError('Cannot reach the server. Is the backend running?', 0);
   }
 
-  return response.json();
+  const text = await response.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+  }
+
+  if (!response.ok) {
+    const err = (body ?? {}) as { message?: string; error?: string; errors?: Record<string, string[]> };
+    const firstFieldError = err.errors ? Object.values(err.errors)[0]?.[0] : undefined;
+    throw new ApiError(
+      firstFieldError || err.message || err.error || response.statusText || 'Request failed',
+      response.status,
+      err.errors,
+    );
+  }
+
+  return body as T;
+}
+
+function toQuery(params?: Record<string, string>): string {
+  if (!params) return '';
+  const qs = new URLSearchParams(params).toString();
+  return qs ? `?${qs}` : '';
+}
+
+function upload<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return request<T>(path, { method: 'POST', body: formData });
+}
+
+/** Human-readable message for any thrown value. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? 'Something went wrong');
 }
 
 export interface Location {
@@ -142,6 +192,30 @@ export interface DashboardData {
   recent_bills: Bill[];
 }
 
+export interface ImportResult {
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface MonthlyTrendPoint {
+  amount: number;
+  units: number | null;
+}
+
+export interface LocationTrend {
+  location: { id: number; code: string };
+  year: number;
+  months: string[];
+  totals: number[];
+  units_totals: number[];
+  properties: Array<{
+    reference_no: string;
+    name: string;
+    property_type: string;
+    monthly_data: Record<string, MonthlyTrendPoint | null>;
+  }>;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   current_page: number;
@@ -159,26 +233,15 @@ export const locations = {
     request<Location>(`/locations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number) =>
     request<{ message: string }>(`/locations/${id}`, { method: 'DELETE' }),
-  import: async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await fetch(`${API_BASE}/locations/import`, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Import failed');
-    return data;
-  },
+  trend: (id: number | string, year: number) =>
+    request<LocationTrend>(`/locations/${id}/trend?year=${year}`),
+  import: (file: File) => upload<ImportResult>('/locations/import', file),
 };
 
 // Properties
 export const properties = {
-  list: (params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<Property[]>(`/properties${query}`);
-  },
+  list: (params?: Record<string, string>) =>
+    request<Property[]>(`/properties${toQuery(params)}`),
   get: (id: number) => request<Property>(`/properties/${id}`),
   create: (data: Partial<Property>) =>
     request<Property>('/properties', { method: 'POST', body: JSON.stringify(data) }),
@@ -186,40 +249,16 @@ export const properties = {
     request<Property>(`/properties/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number) =>
     request<{ message: string }>(`/properties/${id}`, { method: 'DELETE' }),
-  import: async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await fetch(`${API_BASE}/properties/import`, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Import failed');
-    return data;
-  },
-  bulkUpdateRef: async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await fetch(`${API_BASE}/properties/bulk-update-ref`, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Import failed');
-    return data;
-  },
+  import: (file: File) => upload<ImportResult>('/properties/import', file),
+  bulkUpdateRef: (file: File) => upload<ImportResult>('/properties/bulk-update-ref', file),
   bills: (id: number) => request<Bill[]>(`/properties/${id}/bills`),
   history: (id: number) => request<ReferenceHistory[]>(`/properties/${id}/history`),
 };
 
 // Bills
 export const bills = {
-  list: (params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<PaginatedResponse<Bill>>(`/bills${query}`);
-  },
+  list: (params?: Record<string, string>) =>
+    request<PaginatedResponse<Bill>>(`/bills${toQuery(params)}`),
   process: (id: number, data: { instruction_id?: string; batch_no?: string; voucher_no: string }) =>
     request<Bill>(`/bills/${id}/process`, { method: 'PATCH', body: JSON.stringify(data) }),
   markPaid: (id: number) => request<Bill>(`/bills/${id}/pay`, { method: 'PATCH' }),
@@ -231,28 +270,8 @@ export const bills = {
     request<Bill>(`/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify(data) }),
   updateAmount: (id: number, data: { website_payable: number }) =>
     request<Bill>(`/bills/${id}/amount`, { method: 'PATCH', body: JSON.stringify(data) }),
-  bulkProcess: async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await fetch(`${API_BASE}/bills/bulk-process`, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData,
-    });
-    return response.json();
-  },
-  import: async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await fetch(`${API_BASE}/bills/import`, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Import failed');
-    return data;
-  },
+  bulkProcess: (file: File) => upload<ImportResult>('/bills/bulk-process', file),
+  import: (file: File) => upload<ImportResult>('/bills/import', file),
   manualPayment: (data: {
     reference_no: string;
     voucher_no: string;
@@ -283,8 +302,7 @@ export const bills = {
     window.open(`${API_BASE}/pdf/${batchId}/download`, '_blank');
   },
   export: (params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    window.open(`${API_BASE}/bills/export${query}`, '_blank');
+    window.open(`${API_BASE}/bills/export${toQuery(params)}`, '_blank');
   },
 };
 
@@ -310,20 +328,34 @@ export const fetchApi = {
 
 // Payments
 export const payments = {
-  list: (params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<PaginatedResponse<PaymentProof>>(`/payments${query}`);
-  },
-  upload: async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await fetch(`${API_BASE}/payments/upload`, {
+  list: (params?: Record<string, string>) =>
+    request<PaginatedResponse<PaymentProof>>(`/payments${toQuery(params)}`),
+  upload: (file: File) => upload<ImportResult>('/payments/upload', file),
+};
+
+// Comparative
+export interface ComparativeResult {
+  reference_no: string;
+  property_name: string | null;
+  location: string | null;
+  property_type: string;
+  meter_no: string | null;
+  error?: string;
+  comparative: {
+    current_month: string;
+    prev_month: string;
+    last_year_same_month: string;
+    units: { current: number | null; prev: number | null; last_year: number | null };
+    amount: { current: number | null; prev: number | null; last_year: number | null };
+  };
+}
+
+export const comparative = {
+  analyze: (referenceNumbers: string[]) =>
+    request<ComparativeResult[]>('/comparative', {
       method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData,
-    });
-    return response.json();
-  },
+      body: JSON.stringify({ reference_numbers: referenceNumbers }),
+    }),
 };
 
 // Dashboard
@@ -333,8 +365,6 @@ export const dashboard = {
 
 // Logs
 export const logs = {
-  list: (params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<PaginatedResponse<LogEntry>>(`/logs${query}`);
-  },
+  list: (params?: Record<string, string>) =>
+    request<PaginatedResponse<LogEntry>>(`/logs${toQuery(params)}`),
 };
