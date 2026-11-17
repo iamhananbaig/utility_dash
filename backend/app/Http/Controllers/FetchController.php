@@ -8,6 +8,7 @@ use App\Models\FetchBatch;
 use App\Services\BillFetchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -55,12 +56,13 @@ class FetchController extends Controller
         ], 201);
     }
 
-    public function latest(): JsonResponse
+    public function latest(): JsonResponse|Response
     {
         $batch = FetchBatch::latest()->first();
 
+        // response()->json(null) would serialize as "{}", which clients read as a batch.
         if (! $batch) {
-            return response()->json(null);
+            return response()->noContent();
         }
 
         return response()->json([

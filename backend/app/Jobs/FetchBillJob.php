@@ -9,11 +9,13 @@ use App\Models\Property;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 
 class FetchBillJob implements ShouldQueue
 {
@@ -22,6 +24,16 @@ class FetchBillJob implements ShouldQueue
     public int $tries = 1;
 
     public int $timeout = 600;
+
+    /**
+     * Seconds between status polls against the Python API.
+     */
+    protected int $pollIntervalSeconds = 3;
+
+    /**
+     * Consecutive failed status requests tolerated before giving up.
+     */
+    protected int $maxConsecutivePollErrors = 10;
 
     public function __construct(
         public int $batchId,
@@ -35,7 +47,7 @@ class FetchBillJob implements ShouldQueue
         $baseUrl = config('services.python_api.url');
 
         // Step 1: Start fetch on Python API
-        $response = Http::timeout(30)->post("{$baseUrl}/{$this->provider}/fetch", [
+        $response = Http::connectTimeout(5)->timeout(30)->post("{$baseUrl}/{$this->provider}/fetch", [
             'reference_numbers' => $this->referenceNumbers,
         ]);
 
@@ -57,16 +69,38 @@ class FetchBillJob implements ShouldQueue
 
         Log::info("FetchBatch {$this->batchId}: Python task {$pythonTaskId} started for {$total} refs");
 
-        // Step 2: Poll Python API until complete
-        while (true) {
-            sleep(3);
+        // Step 2: Poll Python API until complete, stopping well before the job timeout.
+        $deadline = now()->addSeconds($this->timeout - 60);
+        $consecutiveErrors = 0;
 
-            $statusResponse = Http::timeout(15)->get("{$baseUrl}/iesco/status/{$pythonTaskId}");
-            if (! $statusResponse->successful()) {
+        while (true) {
+            Sleep::for($this->pollIntervalSeconds)->seconds();
+
+            if (now()->greaterThan($deadline)) {
+                throw new \RuntimeException("Python task {$pythonTaskId} did not finish within {$this->timeout} seconds.");
+            }
+
+            try {
+                $statusResponse = Http::connectTimeout(5)->timeout(15)->get("{$baseUrl}/{$this->provider}/status/{$pythonTaskId}");
+            } catch (ConnectionException $e) {
+                $statusResponse = null;
+            }
+
+            if ($statusResponse === null || ! $statusResponse->successful()) {
+                if (++$consecutiveErrors >= $this->maxConsecutivePollErrors) {
+                    throw new \RuntimeException('Python API stopped responding while polling task status.');
+                }
+
                 continue;
             }
 
+            $consecutiveErrors = 0;
             $status = $statusResponse->json('status');
+
+            if ($status === 'not_found') {
+                throw new \RuntimeException("Python task {$pythonTaskId} was lost (was the Python API restarted?).");
+            }
+
             $completed = $statusResponse->json('completed', 0);
             $successCount = $statusResponse->json('success_count', 0);
             $failCount = $statusResponse->json('fail_count', 0);
@@ -85,19 +119,19 @@ class FetchBillJob implements ShouldQueue
         }
 
         // Step 3: Get results
-        $resultsResponse = Http::timeout(30)->get("{$baseUrl}/iesco/results/{$pythonTaskId}");
+        $resultsResponse = Http::connectTimeout(5)->timeout(30)->get("{$baseUrl}/{$this->provider}/results/{$pythonTaskId}");
         if (! $resultsResponse->successful()) {
-            $batch->update(['status' => 'completed', 'completed_at' => now()]);
-
-            return;
+            throw new \RuntimeException('Could not download fetch results: HTTP '.$resultsResponse->status());
         }
 
         $results = $resultsResponse->json();
 
         if (! is_array($results)) {
-            $batch->update(['status' => 'completed', 'completed_at' => now()]);
+            throw new \RuntimeException('Python API returned malformed fetch results.');
+        }
 
-            return;
+        if (isset($results['error']) && is_string($results['error'])) {
+            throw new \RuntimeException("Python API returned no results: {$results['error']}");
         }
 
         // Step 4: Save bills to database
@@ -218,7 +252,7 @@ class FetchBillJob implements ShouldQueue
         $batch = FetchBatch::find($this->batchId);
         if ($batch) {
             $batch->update([
-                'status' => 'completed',
+                'status' => 'failed',
                 'completed_at' => now(),
                 'error_log' => ['error' => $exception->getMessage()],
             ]);

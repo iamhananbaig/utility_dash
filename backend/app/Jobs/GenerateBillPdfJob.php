@@ -62,9 +62,9 @@ class GenerateBillPdfJob implements ShouldQueue
 
         if ($returnCode !== 0 || ! file_exists($tempPdf)) {
             @unlink($tempPdf);
-            Log::error("PDF generation failed for bill {$this->billId}", ['output' => $output]);
+            $tail = implode("\n", array_slice($output, -5));
 
-            return;
+            throw new \RuntimeException("pdf-generator exited with code {$returnCode}: {$tail}");
         }
 
         // Save to storage
